@@ -5,7 +5,8 @@
 Este proyecto soluciona el problema de tener la impresora 3D en una ubicación remota (ej. un trastero, sótano o garaje) donde no llega el WiFi de casa, pero se requiere control total y monitorización en tiempo real desde la vivienda.
 
 ![Esquema de Situación](edificio.png)
-*Escenario del proyecto: Superando la barrera de distancia y obstáculos (7 pisos de hormigón) mediante tecnología LoRa.*
+*Escenario del proyecto: Superando la barrera de distancia y obstáculos (4 pisos de hormigón) mediante tecnología LoRa.*
+
 
 ## 🌟 Características Principales
 
@@ -32,6 +33,10 @@ Este proyecto soluciona el problema de tener la impresora 3D en una ubicación r
 | **Fuente de Alimentación** | 2 | USB-C (5V) para alimentar las placas. |
 | **Cables USB-C** | 2 | Para programación y alimentación. |
 
+## Nota para subir los binarios desde android:
+
+Podemos subir los binarios en las placas desde android con la app ESP32_Flash usando el offset 0x0
+
 ---
 
 ## 📐 Arquitectura del Sistema
@@ -47,3 +52,5 @@ graph LR
     B -- LoRa 868MHz <--> C(Heltec Receptor V37)
     C -- WiFi AP/Client --> D[Smartphone / PC]
     D -- Web Interface --> C
+
+

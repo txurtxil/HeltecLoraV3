@@ -39,7 +39,7 @@ Podemos subir los binarios en las placas desde android con la app ESP32_Flash us
 
 Los datos los manda la impresora por mqtt puerto 8883, la conexión id para sacar los datos es : device/numeroserieinoresora/report
 
-Hay que poner la impresora en modo lan y poner el usuario blqt y contraseña que sale en el modo LAN
+Hay que poner la impresora en modo lan y poner el usuario bblp y contraseña que sale en el modo LAN
 
 ---
 

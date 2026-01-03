@@ -4,7 +4,7 @@
 
 Este proyecto soluciona el problema de tener la impresora 3D en una ubicación remota (ej. un trastero, sótano o garaje) donde no llega el WiFi de casa, pero se requiere control total y monitorización en tiempo real desde la vivienda.
 
-![Esquema de Situación](edificio.jpg)
+![Esquema de Situación](edificio.png)
 *Escenario del proyecto: Superando la barrera de distancia y obstáculos (7 pisos de hormigón) mediante tecnología LoRa.*
 
 ## 🌟 Características Principales

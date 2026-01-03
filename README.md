@@ -37,6 +37,10 @@ Este proyecto soluciona el problema de tener la impresora 3D en una ubicación r
 
 Podemos subir los binarios en las placas desde android con la app ESP32_Flash usando el offset 0x0
 
+Los datos los manda la impresora por mqtt puerto 8883, la conexión id para sacar los datos es : device/numeroserieinoresora/report
+
+Hay que poner la impresora en modo lan y poner el usuario blqt y contraseña que sale en el modo LAN
+
 ---
 
 ## 📐 Arquitectura del Sistema

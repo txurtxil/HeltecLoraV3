@@ -1,4 +1,4 @@
-/* CODIGO EMISOR V41 - ULTIMATE COLD BOOT FIX (PIN 36) */
+/* CODIGO EMISOR V42 - FIX G-PAD + OLED DEFINITIVO */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h> 
@@ -13,11 +13,11 @@
 
 #define PRG_BUTTON 0
 
-// --- CONFIGURACIÓN PINES HELTEC V3 (CORRECTOS) ---
+// --- PINES HELTEC V3 (CORRECTOS) ---
 #define SDA_OLED 17
 #define SCL_OLED 18  
 #define RST_OLED 21
-#define Vext 36      // <--- LA CLAVE: Pin 36 alimenta el OLED en V3
+#define Vext 36      
 #define LED_PIN 35   
 
 #define LORA_SCK 9
@@ -26,8 +26,8 @@
 #define LORA_CS 8
 #define RF_FREQUENCY 868100000
 
-// Configuración Red por defecto
-const char* ssid_ap_default = "HP_Emisor_V41";     
+// Configuración
+const char* ssid_ap_default = "HP_Emisor_V42";     
 String printer_serial = "0309DA520500162"; 
 
 SSD1306Wire screen(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
@@ -37,7 +37,6 @@ WebServer server(80);
 Preferences preferences; 
 static RadioEvents_t RadioEvents;
 
-// Variables Globales
 bool configMode = false;
 String printer_ip = ""; bool printer_found = false; String stored_access_code = "";
 int lora_profile = 2; int lora_power = 14;
@@ -45,29 +44,44 @@ int print_percent=0; int time_remaining=0; String print_status="OFF";
 int temp_nozzle=0; int temp_bed=0; int layer_num=0; int total_layer_num=0; int fan_speed=0;
 const int BUFFER_SIZE = 20480; char jsonBuffer[BUFFER_SIZE]; 
 
-// --- FUNCIONES ---
+// Variable para mostrar último comando en pantalla
+String last_cmd_screen = "Esperando...";
 
+// --- FUNCION CLAVE ARREGLADA ---
 void sendMqttCommand(String cmdRaw) {
     if(!client.connected()) return;
+    
+    // 1. LIMPIEZA DE COMANDO (AQUI ESTABA EL FALLO)
+    // Convertimos los '+' o '%20' que envia el receptor en ESPACIOS reales
+    cmdRaw.replace("+", " ");
+    cmdRaw.replace("%20", " ");
+    
     String jsonPayload = "";
     String topic_pub = "device/" + printer_serial + "/request";
+    
     int sep = cmdRaw.indexOf(':');
     String type = cmdRaw.substring(0, sep);
     String val = cmdRaw.substring(sep+1);
+
+    // Mostramos en pantalla lo que vamos a enviar (Depuración)
+    last_cmd_screen = type + ">" + val.substring(0, 8);
+    screen.clear(); screen.setFont(ArialMT_Plain_16); 
+    screen.setTextAlignment(TEXT_ALIGN_CENTER);
+    screen.drawString(64,10, "RX LORA:"); 
+    screen.drawString(64,35, val); 
+    screen.display();
 
     if(type == "ACT") {
         if(val == "PAUSE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"pause\"}}";
         else if(val == "RESUME") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"resume\"}}";
         else if(val == "STOP") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"stop\"}}";
     }
+    // Aqui se construye el Gcode limpio con espacios
     else if(type == "GCODE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"" + val + "\\n\"}}";
     else if(type == "FILE") jsonPayload = "{\"print\": {\"command\": \"project_file\", \"url\": \"file:///sdcard/" + val + "\", \"param\": \"Metadata/plate_1.gcode\", \"subtask_id\": \"0\", \"use_ams\": false}}";
     
     if(jsonPayload != "") {
         client.publish(topic_pub.c_str(), jsonPayload.c_str());
-        screen.clear(); screen.setFont(ArialMT_Plain_16); 
-        screen.setTextAlignment(TEXT_ALIGN_CENTER);
-        screen.drawString(64,20, "CMD ENVIADO"); screen.display();
     }
 }
 
@@ -87,7 +101,7 @@ void configLoRa() {
 
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#111;color:#eee;font-family:sans-serif;text-align:center;}input,button{width:100%;padding:10px;margin:5px 0;}</style></head><body>";
-  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V41</h2>";
+  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V42</h2>";
   h += "<h3>" + String(print_percent) + "% " + print_status + "</h3>";
   h += "<form action='/save' method='POST'><label>Serial:</label><input type='text' name='serial' value='" + printer_serial + "'><label>Code:</label><input type='text' name='code' value='" + stored_access_code + "'><button>GUARDAR</button></form>";
   h += "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><button>SUBIR BIN</button></form></body></html>";
@@ -117,50 +131,24 @@ void checkPrinter() {
 void setup() {
     Serial.begin(115200);
     pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
-    
-    // 1. ESPERA INICIAL DE SEGURIDAD (Estabiliza Voltaje)
     delay(1000); 
 
-    // 2. CONFIGURAR PINES
-    pinMode(Vext, OUTPUT);
-    pinMode(RST_OLED, OUTPUT);
-
-    // 3. SECUENCIA "FUERZA BRUTA" PARA OLED
-    // Ciclo 1: Purgar energía residual
-    digitalWrite(Vext, HIGH); delay(300);  // OFF (Corta alimentación)
-    digitalWrite(Vext, LOW);  delay(500);  // ON (Alimenta)
+    // FIX OLED
+    pinMode(Vext, OUTPUT); pinMode(RST_OLED, OUTPUT);
+    digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
+    digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
+    digitalWrite(RST_OLED, LOW); delay(300); digitalWrite(RST_OLED, HIGH); delay(300);
+    digitalWrite(RST_OLED, LOW); delay(300); digitalWrite(RST_OLED, HIGH); delay(300);
     
-    // Ciclo 2: Asegurar encendido
-    digitalWrite(Vext, HIGH); delay(300);  // OFF
-    digitalWrite(Vext, LOW);  delay(500);  // ON Final
-    
-    // Reset Agresivo (Doble golpe)
-    digitalWrite(RST_OLED, LOW);  delay(300);
-    digitalWrite(RST_OLED, HIGH); delay(300);
-    digitalWrite(RST_OLED, LOW);  delay(300); 
-    digitalWrite(RST_OLED, HIGH); delay(300);
-    
-    // 4. INICIALIZAR LIBRERÍA
     screen.init();
-
-    // 5. CHEQUEO Y REINTENTO (Si falló la primera, insiste)
-    // Usamos getStringWidth como test rápido. Si devuelve 0, algo va mal.
     if (screen.getStringWidth("T") == 0) { 
-        Serial.println("WARN: OLED falló 1er intento. Reintentando...");
-        digitalWrite(Vext, HIGH); delay(200); // Apaga rápido
-        digitalWrite(Vext, LOW);  delay(500); // Enciende
-        digitalWrite(RST_OLED, LOW); delay(500); // Reset largo
-        digitalWrite(RST_OLED, HIGH); delay(500);
+        digitalWrite(Vext, HIGH); delay(200); digitalWrite(Vext, LOW); delay(500);
+        digitalWrite(RST_OLED, LOW); delay(500); digitalWrite(RST_OLED, HIGH); delay(500);
         screen.init();
     }
-    
-    screen.flipScreenVertically();
-    screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"BOOT V41 OK"); screen.display();
-    // ================= FIN SETUP OLED =================
+    screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
+    screen.clear(); screen.drawString(0,0,"BOOT V42 OK"); screen.display();
 
-    // NOTA: MANTENER PULSADO EL BOTÓN AL MENOS 5-6 SEGUNDOS AL ENCENDER
-    // DEBIDO AL TIEMPO DE ARRANQUE DE LA PANTALLA
     pinMode(PRG_BUTTON, INPUT_PULLUP); delay(500); 
     if(digitalRead(PRG_BUTTON) == LOW) configMode = true;
 
@@ -189,7 +177,7 @@ void setup() {
     configLoRa();
     
     espClient.setInsecure(); espClient.setTimeout(5); client.setBufferSize(BUFFER_SIZE); client.setKeepAlive(45);
-    digitalWrite(LED_PIN, LOW); // LED se apaga al terminar setup
+    digitalWrite(LED_PIN, LOW); 
 }
 
 void loop() {
@@ -210,14 +198,13 @@ void loop() {
         lastMsg=millis(); 
         sendLoRa(); 
         updateOled();
-        // Latido cardíaco (Flash LED)
         digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);
     }
     Radio.IrqProcess();
 }
 
 void reconnect() {
-    String id = "E41-"+String(random(0xffff),HEX);
+    String id = "E42-"+String(random(0xffff),HEX);
     if(client.connect(id.c_str(),"bblp",stored_access_code.c_str())) { 
         client.subscribe(("device/" + printer_serial + "/report").c_str()); 
     }
@@ -250,6 +237,7 @@ void updateOled() {
     screen.drawString(0,0,"IP:.1 | "+printer_ip);
     screen.drawString(0,15,"N:"+String(temp_nozzle)+" B:"+String(temp_bed));
     screen.setFont(ArialMT_Plain_16);
+    // Mostrar estado o último comando recibido si hay actividad reciente
     screen.drawString(0,40,String(print_percent)+"% "+print_status.substring(0,6));
     screen.display();
 }

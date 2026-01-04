@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V45 - FULL TOTAL (LORA CONFIG + GPAD + OLED FIX) */
+/* CODIGO RECEPTOR V46 - FIX MOVIMIENTO PAD (SPACE ENCODING) */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -9,11 +9,11 @@
 
 #define PRG_BUTTON 0
 
-// --- PINES HELTEC V3 (FIX V41) ---
+// --- PINES HELTEC V3 ---
 #define SDA_OLED 17
 #define SCL_OLED 18
 #define RST_OLED 21
-#define Vext 36      // PIN CORRECTO V3
+#define Vext 36      
 #define LED_PIN 35   
 
 #define LORA_SCK 9
@@ -37,9 +37,9 @@ bool signal_lost=false;
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
 int p_noz=0; int p_bed=0;
 
-// CONFIG LORA (Recuperado)
-int lora_profile=2; // 0:Rápido, 2:Balance, 3:Largo Alcance
-int lora_power=14;  // dBm (Max 22)
+// CONFIG LORA
+int lora_profile=2; 
+int lora_power=14;
 
 // CONFIG WIFI
 String wifi_sta_ssid=""; String wifi_sta_pass=""; String wifi_ap_pass=""; 
@@ -98,12 +98,11 @@ void updateDisplay() {
 
 void configLoRa() {
     int sf = 9; int bw = 0; 
-    // Perfiles: 0=Rapido(Corto), 2=Balance, 3=Lento(Largo)
     switch(lora_profile) { 
-        case 0: sf=7; bw=2; break; // SF7 BW250
-        case 1: sf=7; bw=0; break; // SF7 BW125
-        case 2: sf=9; bw=0; break; // SF9 BW125 (Default)
-        case 3: sf=12; bw=0; break;// SF12 BW125 (Max Range)
+        case 0: sf=7; bw=2; break; 
+        case 1: sf=7; bw=0; break; 
+        case 2: sf=9; bw=0; break; 
+        case 3: sf=12; bw=0; break;
     }
     Radio.SetTxConfig(MODEM_LORA, lora_power, 0, bw, sf, 1, 8, false, true, 0, 0, false, 3000);
     Radio.SetRxConfig(MODEM_LORA, bw, sf, 1, 0, 8, 0, false, 0, true, 0, 0, false, true);
@@ -136,7 +135,6 @@ void handleSaveWiFi() {
     } else server.send(400, "text/plain", "Error");
 }
 
-// NUEVO: HANDLER PARA GUARDAR CONFIG LORA
 void handleSaveLoRa() {
     if(server.hasArg("prof") && server.hasArg("pow")) {
         preferences.begin("conf", false);
@@ -172,8 +170,13 @@ String getHtml() {
   h += "setInterval(()=>{fetch('/data').then(r=>r.json()).then(d=>{";
   h += "document.getElementById('p').innerText=d.p+'%';document.getElementById('s').innerText=d.s;";
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
-  h += "function c(u){fetch(u);}";
-  h += "</script></head><body><h2>🛸 RECEPTOR V45</h2>";
+  
+  // --- AQUI ESTA EL ARREGLO MAGICO ---
+  // encodeURI convierte los espacios en %20 para que no se corten
+  h += "function c(u){fetch(encodeURI(u));}"; 
+  // -----------------------------------
+  
+  h += "</script></head><body><h2>🛸 RECEPTOR V46</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando señales...</div>";
   h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p><p>N:"+String(p_noz)+"°C | B:"+String(p_bed)+"°C</p></div>";
@@ -199,7 +202,7 @@ String getHtml() {
   h += "<input type='text' id='f' placeholder='archivo.gcode'><button class='btn-blue' onclick=\"c('/cmd?file='+document.getElementById('f').value)\">Print</button><br>";
   h += "<input type='text' id='g' placeholder='Gcode'><button class='btn-blue' onclick=\"c('/cmd?gcode='+document.getElementById('g').value)\">Send</button></div>";
 
-  // --- NUEVA SECCION: CONFIG LORA ---
+  // CONFIG LORA
   h += "<div class='card'><h3>📡 CONFIG LORA</h3><form action='/lora' method='POST'>";
   h += "<label>Perfil:</label><br><select name='prof'>";
   h += "<option value='0' "+String(lora_profile==0?"selected":"")+">0: Rápido (Corto Alcance)</option>";
@@ -210,7 +213,6 @@ String getHtml() {
   h += "<option value='14' "+String(lora_power==14?"selected":"")+">14 (Media)</option>";
   h += "<option value='22' "+String(lora_power==22?"selected":"")+">22 (Máxima)</option></select><br>";
   h += "<button class='btn-green' type='submit'>GUARDAR LORA</button></form></div>";
-  // ----------------------------------
 
   // WIFI / OTA
   h += "<div class='card'><h3>⚙️ SISTEMA</h3>";
@@ -251,7 +253,7 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V45..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V46..."); screen.display();
     // --------------------
 
     WiFi.mode(WIFI_AP_STA);
@@ -265,7 +267,7 @@ void setup() {
     });
     server.on("/cmd", handleCommand);
     server.on("/wifi", handleSaveWiFi);
-    server.on("/lora", handleSaveLoRa); // NUEVO HANDLER
+    server.on("/lora", handleSaveLoRa);
     server.on("/update", HTTP_POST, [](){ server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK"); }, handleUpdate);
     server.begin();
 

@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V44 - GPAD XYZ + SEÑALES WEB + OLED FIX */
+/* CODIGO RECEPTOR V45 - FULL TOTAL (LORA CONFIG + GPAD + OLED FIX) */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -9,11 +9,11 @@
 
 #define PRG_BUTTON 0
 
-// --- PINES HELTEC V3 ---
+// --- PINES HELTEC V3 (FIX V41) ---
 #define SDA_OLED 17
 #define SCL_OLED 18
 #define RST_OLED 21
-#define Vext 36      
+#define Vext 36      // PIN CORRECTO V3
 #define LED_PIN 35   
 
 #define LORA_SCK 9
@@ -27,7 +27,7 @@ WebServer server(80);
 Preferences preferences;
 static RadioEvents_t RadioEvents;
 
-// VARIABLES
+// VARIABLES DATOS
 int rx_rssi_lora=0; 
 long wifi_rssi=0;
 unsigned long last_packet=0; 
@@ -37,9 +37,13 @@ bool signal_lost=false;
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
 int p_noz=0; int p_bed=0;
 
-// CONFIG
-int lora_profile=2; int lora_power=14;
+// CONFIG LORA (Recuperado)
+int lora_profile=2; // 0:Rápido, 2:Balance, 3:Largo Alcance
+int lora_power=14;  // dBm (Max 22)
+
+// CONFIG WIFI
 String wifi_sta_ssid=""; String wifi_sta_pass=""; String wifi_ap_pass=""; 
+
 unsigned long btn_press_start = 0; bool btn_pressed = false;
 
 String getValue(String d, char s, int i) {
@@ -53,7 +57,7 @@ void updateDisplay() {
     screen.clear(); 
     screen.setFont(ArialMT_Plain_10); 
     
-    // 1. IP (Izquierda)
+    // IP
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(WiFi.status() == WL_CONNECTED) {
         screen.drawString(0, 0, WiFi.localIP().toString());
@@ -63,14 +67,13 @@ void updateDisplay() {
         wifi_rssi = 0;
     }
 
-    // 2. SEÑALES (Derecha) - Ajustadas para que no se corten
+    // SEÑALES
     screen.setTextAlignment(TEXT_ALIGN_RIGHT); 
     String sig = "L:" + String(rx_rssi_lora);
-    // Si hay WiFi mostramos señal, si no "--"
     if(wifi_rssi != 0) sig += " W:" + String(wifi_rssi); else sig += " W:--";
     screen.drawString(128, 0, sig);
 
-    // 3. DATOS CENTRALES
+    // DATOS
     if(signal_lost) {
         if((millis()/500)%2==0) {
             screen.setTextAlignment(TEXT_ALIGN_CENTER); 
@@ -83,14 +86,10 @@ void updateDisplay() {
         screen.setTextAlignment(TEXT_ALIGN_LEFT); 
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 16, String(p_perc) + "%");
-        
         screen.setFont(ArialMT_Plain_10);
         screen.drawString(60, 16, p_stat.substring(0, 10)); 
         screen.drawString(60, 28, String(p_time) + " min rest.");
-        
         screen.drawLine(0, 46, 128, 46);
-        
-        // TEMPERATURAS
         String temps = "N:" + String(p_noz) + " B:" + String(p_bed);
         screen.drawString(0, 49, temps);
     }
@@ -99,7 +98,13 @@ void updateDisplay() {
 
 void configLoRa() {
     int sf = 9; int bw = 0; 
-    switch(lora_profile) { case 0: sf=7; bw=2; break; case 1: sf=7; bw=0; break; case 2: sf=9; bw=0; break; case 3: sf=12; bw=0; break; }
+    // Perfiles: 0=Rapido(Corto), 2=Balance, 3=Lento(Largo)
+    switch(lora_profile) { 
+        case 0: sf=7; bw=2; break; // SF7 BW250
+        case 1: sf=7; bw=0; break; // SF7 BW125
+        case 2: sf=9; bw=0; break; // SF9 BW125 (Default)
+        case 3: sf=12; bw=0; break;// SF12 BW125 (Max Range)
+    }
     Radio.SetTxConfig(MODEM_LORA, lora_power, 0, bw, sf, 1, 8, false, true, 0, 0, false, 3000);
     Radio.SetRxConfig(MODEM_LORA, bw, sf, 1, 0, 8, 0, false, 0, true, 0, 0, false, true);
     Radio.Rx(0);
@@ -112,7 +117,7 @@ void sendCommand(String cmd) {
     digitalWrite(LED_PIN, HIGH); delay(100); digitalWrite(LED_PIN, LOW);
 }
 
-// --- WEB SERVER HANDLERS ---
+// --- WEB HANDLERS ---
 void handleCommand() {
     if(server.hasArg("act")) { sendCommand("ACT:"+server.arg("act")); server.send(200, "text/plain", "OK"); } 
     else if(server.hasArg("gcode")) { sendCommand("GCODE:"+server.arg("gcode")); server.send(200, "text/plain", "OK"); }
@@ -126,9 +131,21 @@ void handleSaveWiFi() {
         preferences.putString("ssid", server.arg("ssid"));
         preferences.putString("pass", server.arg("pass"));
         preferences.end();
-        server.send(200, "text/html", "<h1>Guardado. Reiniciando...</h1>");
+        server.send(200, "text/html", "<h1>WiFi Guardado. Reiniciando...</h1>");
         delay(1000); ESP.restart();
-    } else server.send(400, "text/plain", "Error datos");
+    } else server.send(400, "text/plain", "Error");
+}
+
+// NUEVO: HANDLER PARA GUARDAR CONFIG LORA
+void handleSaveLoRa() {
+    if(server.hasArg("prof") && server.hasArg("pow")) {
+        preferences.begin("conf", false);
+        preferences.putInt("prof", server.arg("prof").toInt());
+        preferences.putInt("pow", server.arg("pow").toInt());
+        preferences.end();
+        server.send(200, "text/html", "<h1>LoRa Guardado. Reiniciando...</h1>");
+        delay(1000); ESP.restart();
+    } else server.send(400, "text/plain", "Error");
 }
 
 void handleUpdate() {
@@ -138,7 +155,6 @@ void handleUpdate() {
   else if (upload.status == UPLOAD_FILE_END) { Update.end(true); server.send(200,"text/html","<h1>OK ACTUALIZADO</h1>"); delay(1000); ESP.restart(); }
 }
 
-// --- HTML CON G-PAD Y SEÑALES ---
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
   h += "<style>";
@@ -146,65 +162,60 @@ String getHtml() {
   h += ".card{background:#2a2a2a;padding:10px;margin:10px auto;border-radius:12px;max-width:400px;border:1px solid #444;}";
   h += "h1{margin:0;font-size:35px;color:#00d2ff;} h3{border-bottom:1px solid #555;padding-bottom:5px;color:#aaa;}";
   h += ".sig-bar{font-size:12px;background:#111;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
-  h += "input{width:65%;padding:8px;background:#111;border:1px solid #555;color:white;border-radius:5px;}";
+  h += "input,select{width:65%;padding:8px;background:#111;border:1px solid #555;color:white;border-radius:5px;margin-bottom:5px;}";
   h += "button{padding:8px 15px;border:none;border-radius:5px;color:white;font-weight:bold;cursor:pointer;margin:2px;}";
   h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-gray{background:#555;}";
   h += ".gpad-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;max-width:200px;margin:0 auto;}";
-  h += ".z-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;max-width:200px;margin:10px auto;}";
   h += "</style>";
   
-  // Script para actualizar datos y señales
   h += "<script>";
   h += "setInterval(()=>{fetch('/data').then(r=>r.json()).then(d=>{";
-  h += "document.getElementById('p').innerText=d.p+'%';";
-  h += "document.getElementById('s').innerText=d.s;";
-  h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';";
-  h += "})},2000);";
+  h += "document.getElementById('p').innerText=d.p+'%';document.getElementById('s').innerText=d.s;";
+  h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
   h += "function c(u){fetch(u);}";
-  h += "</script>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V45</h2>";
   
-  h += "</head><body><h2>🛸 RECEPTOR V44</h2>";
-  
-  // BARRA DE SEÑALES WEB
   h += "<div class='sig-bar' id='sig'>Cargando señales...</div>";
+  h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p><p>N:"+String(p_noz)+"°C | B:"+String(p_bed)+"°C</p></div>";
   
-  // ESTADO
-  h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p>";
-  h += "<p>🌡️ Nozzle: "+String(p_noz)+"°C | Bed: "+String(p_bed)+"°C</p></div>";
-  
-  // G-PAD (MOVIMIENTO XYZ + HOME)
-  h += "<div class='card'><h3>🕹️ MOVIMIENTO (G-PAD)</h3>";
-  // Boton Home G28
-  h += "<button class='btn-yell' style='width:100%;margin-bottom:10px' onclick=\"c('/cmd?gcode=G28')\">🏠 HOME ALL (G28)</button>";
-  // Cruz XY
+  // G-PAD
+  h += "<div class='card'><h3>🕹️ MOVIMIENTO</h3>";
+  h += "<button class='btn-yell' style='width:100%;margin-bottom:10px' onclick=\"c('/cmd?gcode=G28')\">🏠 HOME (G28)</button>";
   h += "<div class='gpad-grid'>";
   h += "<div></div><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Y10 F3000 G90')\">⬆️ Y+</button><div></div>";
   h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 X-10 F3000 G90')\">⬅️ X-</button>";
-  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=G90')\">🎯 ABS</button>"; // Boton centro reset modo
+  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=G90')\">🎯</button>";
   h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 X10 F3000 G90')\">➡️ X+</button>";
   h += "<div></div><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Y-10 F3000 G90')\">⬇️ Y-</button><div></div>";
   h += "</div>";
-  // Eje Z
-  h += "<div class='z-grid'>";
-  h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z10 F600 G90')\">⏫ Z+ (Subir)</button>";
-  h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z-10 F600 G90')\">⏬ Z- (Bajar)</button>";
-  h += "</div></div>";
+  h += "<div style='margin-top:10px'><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z10 F600 G90')\">⏫ Z+</button><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z-10 F600 G90')\">⏬ Z-</button></div></div>";
 
-  // CONTROL BASICO
+  // CONTROL
   h += "<div class='card'><h3>⏯ CONTROL</h3>";
-  h += "<button class='btn-yell' onclick=\"c('/cmd?act=PAUSE')\">PAUSA</button>";
-  h += "<button class='btn-green' onclick=\"c('/cmd?act=RESUME')\">PLAY</button>";
-  h += "<button class='btn-red' onclick=\"c('/cmd?act=STOP')\">STOP</button></div>";
+  h += "<button class='btn-yell' onclick=\"c('/cmd?act=PAUSE')\">PAUSA</button><button class='btn-green' onclick=\"c('/cmd?act=RESUME')\">PLAY</button><button class='btn-red' onclick=\"c('/cmd?act=STOP')\">STOP</button></div>";
 
-  // CONSOLA Y ARCHIVOS
-  h += "<div class='card'><h3>📂 ARCHIVOS / GCODE</h3>";
-  h += "<input type='text' id='f' placeholder='archivo.gcode'><button class='btn-blue' onclick=\"c('/cmd?file='+document.getElementById('f').value)\">🖨️</button><br>";
-  h += "<input type='text' id='g' placeholder='G28' style='margin-top:5px'><button class='btn-blue' onclick=\"c('/cmd?gcode='+document.getElementById('g').value)\">📩</button></div>";
+  // ARCHIVOS
+  h += "<div class='card'><h3>📂 ARCHIVOS / CMD</h3>";
+  h += "<input type='text' id='f' placeholder='archivo.gcode'><button class='btn-blue' onclick=\"c('/cmd?file='+document.getElementById('f').value)\">Print</button><br>";
+  h += "<input type='text' id='g' placeholder='Gcode'><button class='btn-blue' onclick=\"c('/cmd?gcode='+document.getElementById('g').value)\">Send</button></div>";
 
-  // CONFIG Y OTA
-  h += "<div class='card'><h3>⚙️ WIFI / OTA</h3>";
-  h += "<form action='/wifi' method='POST' style='display:inline'><input type='text' name='ssid' placeholder='SSID' value='"+wifi_sta_ssid+"'><input type='password' name='pass' placeholder='Pass'><button class='btn-green'>Conectar</button></form><br>";
-  h += "<form method='POST' action='/update' enctype='multipart/form-data' style='margin-top:10px'><input type='file' name='update' style='width:60%'><button class='btn-yell'>Subir .BIN</button></form></div>";
+  // --- NUEVA SECCION: CONFIG LORA ---
+  h += "<div class='card'><h3>📡 CONFIG LORA</h3><form action='/lora' method='POST'>";
+  h += "<label>Perfil:</label><br><select name='prof'>";
+  h += "<option value='0' "+String(lora_profile==0?"selected":"")+">0: Rápido (Corto Alcance)</option>";
+  h += "<option value='2' "+String(lora_profile==2?"selected":"")+">2: Medio (Balance)</option>";
+  h += "<option value='3' "+String(lora_profile==3?"selected":"")+">3: Lento (Largo Alcance)</option></select><br>";
+  h += "<label>Potencia (dBm):</label><br><select name='pow'>";
+  h += "<option value='10' "+String(lora_power==10?"selected":"")+">10 (Baja)</option>";
+  h += "<option value='14' "+String(lora_power==14?"selected":"")+">14 (Media)</option>";
+  h += "<option value='22' "+String(lora_power==22?"selected":"")+">22 (Máxima)</option></select><br>";
+  h += "<button class='btn-green' type='submit'>GUARDAR LORA</button></form></div>";
+  // ----------------------------------
+
+  // WIFI / OTA
+  h += "<div class='card'><h3>⚙️ SISTEMA</h3>";
+  h += "<form action='/wifi' method='POST'><input type='text' name='ssid' placeholder='SSID' value='"+wifi_sta_ssid+"'><input type='password' name='pass' placeholder='Pass'><button class='btn-green'>WiFi</button></form><br>";
+  h += "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update' style='width:60%'><button class='btn-yell'>OTA .BIN</button></form></div>";
 
   h += "</body></html>";
   return h;
@@ -235,28 +246,26 @@ void setup() {
     
     screen.init();
     if (screen.getStringWidth("T") == 0) { 
-        Serial.println("Reintentando OLED...");
         digitalWrite(Vext, HIGH); delay(200); digitalWrite(Vext, LOW); delay(500);
         digitalWrite(RST_OLED, LOW); delay(500); digitalWrite(RST_OLED, HIGH); delay(500);
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V44..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V45..."); screen.display();
     // --------------------
 
     WiFi.mode(WIFI_AP_STA);
     if(wifi_ap_pass == "") WiFi.softAP("HP_Receptor", NULL); else WiFi.softAP("HP_Receptor", wifi_ap_pass.c_str());
     if(wifi_sta_ssid != "") WiFi.begin(wifi_sta_ssid.c_str(), wifi_sta_pass.c_str());
 
-    // ENDPOINTS WEB
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
-    // AQUI PASAMOS LAS SEÑALES AL JSON
     server.on("/data", [](){ 
         String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI())+"}"; 
         server.send(200,"application/json",j); 
     });
     server.on("/cmd", handleCommand);
     server.on("/wifi", handleSaveWiFi);
+    server.on("/lora", handleSaveLoRa); // NUEVO HANDLER
     server.on("/update", HTTP_POST, [](){ server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK"); }, handleUpdate);
     server.begin();
 
@@ -285,7 +294,6 @@ void loop() {
     
     if(millis()-last_packet > 30000 && !signal_lost) { signal_lost=true; updateDisplay(); }
     
-    // Refresco pantalla si cambia WiFi
     static long lastWifiCheck = 0;
     if(millis() - lastWifiCheck > 2000) {
         lastWifiCheck = millis();

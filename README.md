@@ -9,6 +9,8 @@ Este proyecto soluciona el problema de tener la impresora 3D en una ubicación r
 
 ![Placa Heltec LORA v3](01heltecv3.png)
 
+![Heltec LORA v3](01emisor.png)
+
 
 ## 🌟 Características Principales
 

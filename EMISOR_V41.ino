@@ -1,4 +1,4 @@
-/* CODIGO EMISOR V44 - CUSTOM WIFI AP + BARRA BOOT + FIXES */
+/* CODIGO EMISOR V45 - LUZ CONTROL + WIFI CONFIG + FIXES */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h> 
@@ -36,7 +36,6 @@ static RadioEvents_t RadioEvents;
 // VARIABLES CONFIGURABLES
 String printer_serial = "0309DA520500162"; 
 String stored_access_code = "";
-// NUEVAS VARIABLES PARA WIFI PROPIO
 String ap_ssid = "HP_Emisor"; 
 String ap_pass = ""; 
 
@@ -47,7 +46,6 @@ int print_percent=0; int time_remaining=0; String print_status="OFF";
 int temp_nozzle=0; int temp_bed=0; int layer_num=0; int total_layer_num=0; int fan_speed=0;
 const int BUFFER_SIZE = 20480; char jsonBuffer[BUFFER_SIZE]; 
 
-// Variables pantalla
 String last_cmd_screen = "";
 long last_cmd_time = 0;
 
@@ -56,7 +54,6 @@ long last_cmd_time = 0;
 void sendMqttCommand(String cmdRaw) {
     if(!client.connected()) return;
     
-    // LIMPIEZA DE COMANDO (G-PAD FIX)
     cmdRaw.replace("+", " ");
     cmdRaw.replace("%20", " ");
     
@@ -67,13 +64,17 @@ void sendMqttCommand(String cmdRaw) {
     String type = cmdRaw.substring(0, sep);
     String val = cmdRaw.substring(sep+1);
 
-    last_cmd_screen = "RX: " + val.substring(0, 10);
+    last_cmd_screen = "RX: " + val;
     last_cmd_time = millis();
 
     if(type == "ACT") {
         if(val == "PAUSE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"pause\"}}";
         else if(val == "RESUME") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"resume\"}}";
         else if(val == "STOP") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"stop\"}}";
+        // --- NUEVO: CONTROL DE LUZ ---
+        // Bambu Lab usa M960 S5 P1 (ON) y P0 (OFF)
+        else if(val == "L_ON") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"M960 S5 P1\\n\"}}";
+        else if(val == "L_OFF") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"M960 S5 P0\\n\"}}";
     }
     else if(type == "GCODE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"" + val + "\\n\"}}";
     else if(type == "FILE") jsonPayload = "{\"print\": {\"command\": \"project_file\", \"url\": \"file:///sdcard/" + val + "\", \"param\": \"Metadata/plate_1.gcode\", \"subtask_id\": \"0\", \"use_ams\": false}}";
@@ -97,26 +98,22 @@ void configLoRa() {
     Radio.Rx(0); 
 }
 
-// --- WEB: AHORA INCLUYE CONFIGURACION WIFI ---
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#111;color:#eee;font-family:sans-serif;text-align:center;}input,button{width:100%;padding:10px;margin:5px 0;box-sizing:border-box;} .box{border:1px solid #444; padding:10px; margin:10px; border-radius:10px;}</style></head><body>";
   
-  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V44</h2>";
+  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V45</h2>";
   h += "<h3>" + String(print_percent) + "% " + print_status + "</h3>";
   
-  // FORMULARIO IMPRESORA
   h += "<div class='box'><h3>🖨️ IMPRESORA</h3><form action='/save' method='POST'>";
   h += "<label>Serial Number:</label><input type='text' name='serial' value='" + printer_serial + "'>";
   h += "<label>Access Code:</label><input type='text' name='code' value='" + stored_access_code + "'>";
   
-  // FORMULARIO WIFI PROPIO (NUEVO)
   h += "<h3>📶 ZONA WIFI (AP)</h3>";
   h += "<label>Nombre WiFi (SSID):</label><input type='text' name='ap_ssid' value='" + ap_ssid + "'>";
-  h += "<label>Contraseña (Dejar vacía para abierta):</label><input type='text' name='ap_pass' value='" + ap_pass + "'>";
+  h += "<label>Contraseña:</label><input type='text' name='ap_pass' value='" + ap_pass + "'>";
   
   h += "<button style='background:#0a0;color:white;font-weight:bold;margin-top:15px'>GUARDAR TODO</button></form></div>";
   
-  // OTA
   h += "<div class='box'><h3>🔄 ACTUALIZAR</h3><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update' style='color:white'><button style='background:#d32f2f;color:white'>SUBIR .BIN</button></form></div></body></html>";
   return h;
 }
@@ -147,7 +144,7 @@ void setup() {
     pinMode(PRG_BUTTON, INPUT_PULLUP);
     delay(500); 
 
-    // 1. FIX PANTALLA
+    // FIX PANTALLA
     pinMode(Vext, OUTPUT); pinMode(RST_OLED, OUTPUT);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
@@ -162,7 +159,7 @@ void setup() {
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
 
-    // 2. BARRA DE PROGRESO DE ARRANQUE
+    // BARRA PROGRESO
     for(int i=0; i<=100; i+=2) {
         screen.clear();
         screen.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -186,39 +183,29 @@ void setup() {
         screen.clear(); screen.drawString(64, 25, "Arrancando..."); screen.display();
     }
 
-    // 3. CARGAR PREFERENCIAS (AHORA INCLUYE WIFI)
     preferences.begin("conf", false); 
     stored_access_code = preferences.getString("c", "");
     printer_serial = preferences.getString("ser", "0309DA520500162");
-    // Cargamos nombre WiFi, si no existe usa HP_Emisor
     ap_ssid = preferences.getString("apssid", "HP_Emisor"); 
-    // Cargamos password, si no existe es vacía
     ap_pass = preferences.getString("appass", ""); 
     preferences.end();
     
-    // 4. INICIAR WIFI CON TUS DATOS PERSONALIZADOS
     WiFi.disconnect(true); 
     WiFi.mode(WIFI_AP); 
-    if(ap_pass == "") {
-        WiFi.softAP(ap_ssid.c_str(), NULL, 6, 0, 4); // Abierta
-    } else {
-        WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str(), 6, 0, 4); // Con password
-    }
+    if(ap_pass == "") WiFi.softAP(ap_ssid.c_str(), NULL, 6, 0, 4);
+    else WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str(), 6, 0, 4);
     
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
     
-    // GUARDADO DE DATOS (ACTUALIZADO)
     server.on("/save", [](){
         if(server.hasArg("code")){
             preferences.begin("conf", false); 
             preferences.putString("c", server.arg("code")); 
             preferences.putString("ser", server.arg("serial"));
-            // Guardamos tambien WiFi
             if(server.hasArg("ap_ssid")) preferences.putString("apssid", server.arg("ap_ssid"));
             if(server.hasArg("ap_pass")) preferences.putString("appass", server.arg("ap_pass"));
-            
             preferences.end(); 
-            server.send(200, "text/html", "<h1>Guardado Correctamente. <br>Reiniciando...</h1>"); 
+            server.send(200, "text/html", "<h1>Guardado. Reiniciando...</h1>"); 
             delay(1000); ESP.restart();
         }
     });
@@ -260,7 +247,7 @@ void loop() {
 }
 
 void reconnect() {
-    String id = "E44-"+String(random(0xffff),HEX);
+    String id = "E45-"+String(random(0xffff),HEX);
     if(client.connect(id.c_str(),"bblp",stored_access_code.c_str())) { 
         client.subscribe(("device/" + printer_serial + "/report").c_str()); 
     }
@@ -287,27 +274,22 @@ void sendLoRa() {
     Radio.Send((uint8_t*)p, strlen(p));
 }
 
-// PANTALLA OLED ORDENADA
 void updateOled() {
     screen.clear(); 
     screen.setFont(ArialMT_Plain_10); 
-    
-    // LINEA 1
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(client.connected()) screen.drawString(0,0, "LINK: OK");
     else if(printer_found) screen.drawString(0,0, "LINK: Conn");
     else screen.drawString(0,0, "LINK: Buscar");
 
     screen.setTextAlignment(TEXT_ALIGN_RIGHT);
-    // Muestra clientes conectados al AP (la impresora)
     screen.drawString(128, 0, "Cli: " + String(WiFi.softAPgetStationNum()));
 
     if(millis() - last_cmd_time < 3000 && last_cmd_screen != "") {
         screen.setTextAlignment(TEXT_ALIGN_CENTER);
         screen.setFont(ArialMT_Plain_16);
         screen.drawString(64, 25, last_cmd_screen);
-    } 
-    else {
+    } else {
         screen.setTextAlignment(TEXT_ALIGN_LEFT); 
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 16, String(print_percent) + "%");
@@ -318,6 +300,5 @@ void updateOled() {
         String temps = "N:" + String(temp_nozzle) + " B:" + String(temp_bed);
         screen.drawString(0, 49, temps);
     }
-    
     screen.display();
 }

@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V47 - FIX DEFINITIVO G-PAD (PLUS ENCODING) */
+/* CODIGO RECEPTOR V49 - LUZ DESTACADA + PAD FIX + OLED FIX */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -38,12 +38,9 @@ int p_perc=0; int p_time=0; String p_stat="ESPERANDO";
 int p_noz=0; int p_bed=0;
 
 // CONFIG LORA
-int lora_profile=2; 
-int lora_power=14;
-
+int lora_profile=2; int lora_power=14;
 // CONFIG WIFI
 String wifi_sta_ssid=""; String wifi_sta_pass=""; String wifi_ap_pass=""; 
-
 unsigned long btn_press_start = 0; bool btn_pressed = false;
 
 String getValue(String d, char s, int i) {
@@ -57,7 +54,6 @@ void updateDisplay() {
     screen.clear(); 
     screen.setFont(ArialMT_Plain_10); 
     
-    // IP
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(WiFi.status() == WL_CONNECTED) {
         screen.drawString(0, 0, WiFi.localIP().toString());
@@ -67,13 +63,11 @@ void updateDisplay() {
         wifi_rssi = 0;
     }
 
-    // SEÑALES
     screen.setTextAlignment(TEXT_ALIGN_RIGHT); 
     String sig = "L:" + String(rx_rssi_lora);
     if(wifi_rssi != 0) sig += " W:" + String(wifi_rssi); else sig += " W:--";
     screen.drawString(128, 0, sig);
 
-    // DATOS
     if(signal_lost) {
         if((millis()/500)%2==0) {
             screen.setTextAlignment(TEXT_ALIGN_CENTER); 
@@ -98,12 +92,7 @@ void updateDisplay() {
 
 void configLoRa() {
     int sf = 9; int bw = 0; 
-    switch(lora_profile) { 
-        case 0: sf=7; bw=2; break; 
-        case 1: sf=7; bw=0; break; 
-        case 2: sf=9; bw=0; break; 
-        case 3: sf=12; bw=0; break;
-    }
+    switch(lora_profile) { case 0: sf=7; bw=2; break; case 1: sf=7; bw=0; break; case 2: sf=9; bw=0; break; case 3: sf=12; bw=0; break; }
     Radio.SetTxConfig(MODEM_LORA, lora_power, 0, bw, sf, 1, 8, false, true, 0, 0, false, 3000);
     Radio.SetRxConfig(MODEM_LORA, bw, sf, 1, 0, 8, 0, false, 0, true, 0, 0, false, true);
     Radio.Rx(0);
@@ -116,9 +105,8 @@ void sendCommand(String cmd) {
     digitalWrite(LED_PIN, HIGH); delay(100); digitalWrite(LED_PIN, LOW);
 }
 
-// --- WEB HANDLERS ---
 void handleCommand() {
-    // server.arg decodifica automáticamente los "+" como espacios
+    // ESTA FUNCION GESTIONA LUZ, MOVIMIENTO Y ESTADO
     if(server.hasArg("act")) { sendCommand("ACT:"+server.arg("act")); server.send(200, "text/plain", "OK"); } 
     else if(server.hasArg("gcode")) { sendCommand("GCODE:"+server.arg("gcode")); server.send(200, "text/plain", "OK"); }
     else if(server.hasArg("file")) { sendCommand("FILE:"+server.arg("file")); server.send(200, "text/plain", "OK"); }
@@ -163,26 +151,29 @@ String getHtml() {
   h += ".sig-bar{font-size:12px;background:#111;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
   h += "input,select{width:65%;padding:8px;background:#111;border:1px solid #555;color:white;border-radius:5px;margin-bottom:5px;}";
   h += "button{padding:8px 15px;border:none;border-radius:5px;color:white;font-weight:bold;cursor:pointer;margin:2px;}";
-  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-gray{background:#555;}";
+  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-gray{background:#555;} .btn-light{background:#fff;color:black;font-weight:900;}";
   h += ".gpad-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;max-width:200px;margin:0 auto;}";
+  h += ".grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}";
   h += "</style>";
   
   h += "<script>";
   h += "setInterval(()=>{fetch('/data').then(r=>r.json()).then(d=>{";
   h += "document.getElementById('p').innerText=d.p+'%';document.getElementById('s').innerText=d.s;";
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
-  
-  // --- FIX JS: Reemplazar espacios por + manualmente ---
-  // Esto asegura que 'G91 G1 X10' llegue como 'G91+G1+X10'
-  // y el ESP32 lo entienda correctamente.
+  // FIX: JS replace espacios
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  // -----------------------------------------------------
-  
-  h += "</script></head><body><h2>🛸 RECEPTOR V47</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V49</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando señales...</div>";
   h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p><p>N:"+String(p_noz)+"°C | B:"+String(p_bed)+"°C</p></div>";
   
+  // --- CONTROL DE LUZ DESTACADO ---
+  h += "<div class='card'><h3>💡 LUZ CAMARA</h3><div class='grid-2'>";
+  h += "<button class='btn-yell' onclick=\"c('/cmd?act=L_ON')\">ENCENDER ☀️</button>";
+  h += "<button class='btn-gray' onclick=\"c('/cmd?act=L_OFF')\">APAGAR 🌑</button>";
+  h += "</div></div>";
+  // -------------------------------
+
   // G-PAD
   h += "<div class='card'><h3>🕹️ MOVIMIENTO</h3>";
   h += "<button class='btn-yell' style='width:100%;margin-bottom:10px' onclick=\"c('/cmd?gcode=G28')\">🏠 HOME (G28)</button>";
@@ -196,7 +187,7 @@ String getHtml() {
   h += "<div style='margin-top:10px'><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z10 F600 G90')\">⏫ Z+</button><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z-10 F600 G90')\">⏬ Z-</button></div></div>";
 
   // CONTROL
-  h += "<div class='card'><h3>⏯ CONTROL</h3>";
+  h += "<div class='card'><h3>⏯ IMPRESION</h3>";
   h += "<button class='btn-yell' onclick=\"c('/cmd?act=PAUSE')\">PAUSA</button><button class='btn-green' onclick=\"c('/cmd?act=RESUME')\">PLAY</button><button class='btn-red' onclick=\"c('/cmd?act=STOP')\">STOP</button></div>";
 
   // ARCHIVOS
@@ -207,10 +198,10 @@ String getHtml() {
   // CONFIG LORA
   h += "<div class='card'><h3>📡 CONFIG LORA</h3><form action='/lora' method='POST'>";
   h += "<label>Perfil:</label><br><select name='prof'>";
-  h += "<option value='0' "+String(lora_profile==0?"selected":"")+">0: Rápido (Corto Alcance)</option>";
+  h += "<option value='0' "+String(lora_profile==0?"selected":"")+">0: Rápido (Corto)</option>";
   h += "<option value='2' "+String(lora_profile==2?"selected":"")+">2: Medio (Balance)</option>";
-  h += "<option value='3' "+String(lora_profile==3?"selected":"")+">3: Lento (Largo Alcance)</option></select><br>";
-  h += "<label>Potencia (dBm):</label><br><select name='pow'>";
+  h += "<option value='3' "+String(lora_profile==3?"selected":"")+">3: Lento (Largo)</option></select><br>";
+  h += "<label>Potencia:</label><br><select name='pow'>";
   h += "<option value='10' "+String(lora_power==10?"selected":"")+">10 (Baja)</option>";
   h += "<option value='14' "+String(lora_power==14?"selected":"")+">14 (Media)</option>";
   h += "<option value='22' "+String(lora_power==22?"selected":"")+">22 (Máxima)</option></select><br>";
@@ -255,7 +246,7 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V47..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V49..."); screen.display();
     
     WiFi.mode(WIFI_AP_STA);
     if(wifi_ap_pass == "") WiFi.softAP("HP_Receptor", NULL); else WiFi.softAP("HP_Receptor", wifi_ap_pass.c_str());

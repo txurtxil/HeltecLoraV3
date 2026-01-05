@@ -8,7 +8,6 @@ Este proyecto soluciona el problema de tener la impresora 3D en una ubicación r
 *Escenario del proyecto: Superando la barrera de distancia y obstáculos (3 pisos de hormigón) mediante tecnología LoRa.*
 
 ![Placa Heltec LORA v3](01heltecv3.png)
-*Proyecto tecnología LoRa.*
 
 
 ## 🌟 Características Principales

@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V49 - LUZ DESTACADA + PAD FIX + OLED FIX */
+/* CODIGO RECEPTOR V51 - DASHBOARD DATOS + HOME BUTTON (SOLO HOME) */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -9,7 +9,7 @@
 
 #define PRG_BUTTON 0
 
-// --- PINES HELTEC V3 ---
+// PINES HELTEC V3
 #define SDA_OLED 17
 #define SCL_OLED 18
 #define RST_OLED 21
@@ -27,19 +27,15 @@ WebServer server(80);
 Preferences preferences;
 static RadioEvents_t RadioEvents;
 
-// VARIABLES DATOS
-int rx_rssi_lora=0; 
-long wifi_rssi=0;
-unsigned long last_packet=0; 
-bool signal_lost=false;
+int rx_rssi_lora=0; long wifi_rssi=0; unsigned long last_packet=0; bool signal_lost=false;
 
-// ESTADO IMPRESORA
+// ESTADO IMPRESORA (AMPLIADO)
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
 int p_noz=0; int p_bed=0;
+int p_lay=0; int p_totlay=0; int p_fan=0;
 
-// CONFIG LORA
+// CONFIG
 int lora_profile=2; int lora_power=14;
-// CONFIG WIFI
 String wifi_sta_ssid=""; String wifi_sta_pass=""; String wifi_ap_pass=""; 
 unsigned long btn_press_start = 0; bool btn_pressed = false;
 
@@ -49,19 +45,13 @@ String getValue(String d, char s, int i) {
     return f>i ? d.substring(str[0], str[1]) : "";
 }
 
-// --- PANTALLA OLED ---
+// --- PANTALLA OLED DASHBOARD ---
 void updateDisplay() {
-    screen.clear(); 
-    screen.setFont(ArialMT_Plain_10); 
+    screen.clear(); screen.setFont(ArialMT_Plain_10); 
     
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
-    if(WiFi.status() == WL_CONNECTED) {
-        screen.drawString(0, 0, WiFi.localIP().toString());
-        wifi_rssi = WiFi.RSSI();
-    } else {
-        screen.drawString(0, 0, "AP: 192.168.4.1");
-        wifi_rssi = 0;
-    }
+    if(WiFi.status() == WL_CONNECTED) { screen.drawString(0, 0, WiFi.localIP().toString()); wifi_rssi = WiFi.RSSI(); } 
+    else { screen.drawString(0, 0, "AP: 192.168.4.1"); wifi_rssi = 0; }
 
     screen.setTextAlignment(TEXT_ALIGN_RIGHT); 
     String sig = "L:" + String(rx_rssi_lora);
@@ -70,22 +60,22 @@ void updateDisplay() {
 
     if(signal_lost) {
         if((millis()/500)%2==0) {
-            screen.setTextAlignment(TEXT_ALIGN_CENTER); 
-            screen.setFont(ArialMT_Plain_16);
+            screen.setTextAlignment(TEXT_ALIGN_CENTER); screen.setFont(ArialMT_Plain_16);
             screen.drawString(64, 25, "¡SIN SEÑAL!");
-            screen.setFont(ArialMT_Plain_10);
-            screen.drawString(64, 45, "Revisar Trastero");
         }
     } else {
         screen.setTextAlignment(TEXT_ALIGN_LEFT); 
         screen.setFont(ArialMT_Plain_24);
-        screen.drawString(0, 16, String(p_perc) + "%");
+        screen.drawString(0, 15, String(p_perc) + "%");
+        
         screen.setFont(ArialMT_Plain_10);
-        screen.drawString(60, 16, p_stat.substring(0, 10)); 
-        screen.drawString(60, 28, String(p_time) + " min rest.");
-        screen.drawLine(0, 46, 128, 46);
-        String temps = "N:" + String(p_noz) + " B:" + String(p_bed);
-        screen.drawString(0, 49, temps);
+        screen.drawString(60, 15, p_stat.substring(0, 10)); 
+        screen.drawString(60, 26, "Lay: " + String(p_lay) + "/" + String(p_totlay));
+        screen.drawString(60, 36, "Fan: " + String(p_fan) + "%");
+        
+        screen.drawLine(0, 48, 128, 48);
+        String temps = "N:" + String(p_noz) + " B:" + String(p_bed) + " T:" + String(p_time)+"m";
+        screen.drawString(0, 50, temps);
     }
     screen.display();
 }
@@ -106,7 +96,6 @@ void sendCommand(String cmd) {
 }
 
 void handleCommand() {
-    // ESTA FUNCION GESTIONA LUZ, MOVIMIENTO Y ESTADO
     if(server.hasArg("act")) { sendCommand("ACT:"+server.arg("act")); server.send(200, "text/plain", "OK"); } 
     else if(server.hasArg("gcode")) { sendCommand("GCODE:"+server.arg("gcode")); server.send(200, "text/plain", "OK"); }
     else if(server.hasArg("file")) { sendCommand("FILE:"+server.arg("file")); server.send(200, "text/plain", "OK"); }
@@ -115,23 +104,15 @@ void handleCommand() {
 
 void handleSaveWiFi() {
     if(server.hasArg("ssid") && server.hasArg("pass")) {
-        preferences.begin("conf", false);
-        preferences.putString("ssid", server.arg("ssid"));
-        preferences.putString("pass", server.arg("pass"));
-        preferences.end();
-        server.send(200, "text/html", "<h1>WiFi Guardado. Reiniciando...</h1>");
-        delay(1000); ESP.restart();
+        preferences.begin("conf", false); preferences.putString("ssid", server.arg("ssid")); preferences.putString("pass", server.arg("pass")); preferences.end();
+        server.send(200, "text/html", "<h1>WiFi Guardado.</h1>"); delay(1000); ESP.restart();
     } else server.send(400, "text/plain", "Error");
 }
 
 void handleSaveLoRa() {
     if(server.hasArg("prof") && server.hasArg("pow")) {
-        preferences.begin("conf", false);
-        preferences.putInt("prof", server.arg("prof").toInt());
-        preferences.putInt("pow", server.arg("pow").toInt());
-        preferences.end();
-        server.send(200, "text/html", "<h1>LoRa Guardado. Reiniciando...</h1>");
-        delay(1000); ESP.restart();
+        preferences.begin("conf", false); preferences.putInt("prof", server.arg("prof").toInt()); preferences.putInt("pow", server.arg("pow").toInt()); preferences.end();
+        server.send(200, "text/html", "<h1>LoRa Guardado.</h1>"); delay(1000); ESP.restart();
     } else server.send(400, "text/plain", "Error");
 }
 
@@ -139,78 +120,61 @@ void handleUpdate() {
   HTTPUpload& upload = server.upload();
   if (upload.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
   else if (upload.status == UPLOAD_FILE_WRITE) Update.write(upload.buf, upload.currentSize);
-  else if (upload.status == UPLOAD_FILE_END) { Update.end(true); server.send(200,"text/html","<h1>OK ACTUALIZADO</h1>"); delay(1000); ESP.restart(); }
+  else if (upload.status == UPLOAD_FILE_END) { Update.end(true); server.send(200,"text/html","<h1>OK</h1>"); delay(1000); ESP.restart(); }
 }
 
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
   h += "<style>";
-  h += "body{background:#1a1a1a;color:#eee;font-family:sans-serif;text-align:center;margin:0;padding:5px;}";
-  h += ".card{background:#2a2a2a;padding:10px;margin:10px auto;border-radius:12px;max-width:400px;border:1px solid #444;}";
+  h += "body{background:#111;color:#eee;font-family:sans-serif;text-align:center;margin:0;padding:5px;}";
+  h += ".card{background:#222;padding:10px;margin:10px auto;border-radius:12px;max-width:400px;border:1px solid #444;}";
   h += "h1{margin:0;font-size:35px;color:#00d2ff;} h3{border-bottom:1px solid #555;padding-bottom:5px;color:#aaa;}";
-  h += ".sig-bar{font-size:12px;background:#111;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
-  h += "input,select{width:65%;padding:8px;background:#111;border:1px solid #555;color:white;border-radius:5px;margin-bottom:5px;}";
+  h += ".sig-bar{font-size:12px;background:#000;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
+  h += "input,select{width:65%;padding:8px;background:#333;border:1px solid #555;color:white;border-radius:5px;}";
   h += "button{padding:8px 15px;border:none;border-radius:5px;color:white;font-weight:bold;cursor:pointer;margin:2px;}";
-  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-gray{background:#555;} .btn-light{background:#fff;color:black;font-weight:900;}";
-  h += ".gpad-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;max-width:200px;margin:0 auto;}";
-  h += ".grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}";
+  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;}";
+  h += ".stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;text-align:left;padding:10px;}";
+  h += ".stat-box{background:#333;padding:5px;border-radius:5px;}";
   h += "</style>";
   
   h += "<script>";
   h += "setInterval(()=>{fetch('/data').then(r=>r.json()).then(d=>{";
   h += "document.getElementById('p').innerText=d.p+'%';document.getElementById('s').innerText=d.s;";
+  h += "document.getElementById('lay').innerText=d.lay+' / '+d.totlay;";
+  h += "document.getElementById('fan').innerText=d.fan+'%';";
+  h += "document.getElementById('noz').innerText=d.noz+'°C';";
+  h += "document.getElementById('bed').innerText=d.bed+'°C';";
+  h += "document.getElementById('tim').innerText=d.tim+' min';";
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
-  // FIX: JS replace espacios
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V49</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V51</h2>";
   
-  h += "<div class='sig-bar' id='sig'>Cargando señales...</div>";
-  h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p><p>N:"+String(p_noz)+"°C | B:"+String(p_bed)+"°C</p></div>";
+  h += "<div class='sig-bar' id='sig'>Cargando...</div>";
+  h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
   
-  // --- CONTROL DE LUZ DESTACADO ---
-  h += "<div class='card'><h3>💡 LUZ CAMARA</h3><div class='grid-2'>";
-  h += "<button class='btn-yell' onclick=\"c('/cmd?act=L_ON')\">ENCENDER ☀️</button>";
-  h += "<button class='btn-gray' onclick=\"c('/cmd?act=L_OFF')\">APAGAR 🌑</button>";
+  // DASHBOARD
+  h += "<div class='card'><h3>📊 DATOS IMPRESORA</h3><div class='stat-grid'>";
+  h += "<div class='stat-box'>🌡️ Nozzle: <span id='noz'>"+String(p_noz)+"°C</span></div>";
+  h += "<div class='stat-box'>🛌 Bed: <span id='bed'>"+String(p_bed)+"°C</span></div>";
+  h += "<div class='stat-box'>🍰 Capa: <span id='lay'>"+String(p_lay)+" / "+String(p_totlay)+"</span></div>";
+  h += "<div class='stat-box'>🌀 Fan: <span id='fan'>"+String(p_fan)+"%</span></div>";
+  h += "<div class='stat-box'>⏳ Tiempo: <span id='tim'>"+String(p_time)+" min</span></div>";
   h += "</div></div>";
-  // -------------------------------
 
-  // G-PAD
-  h += "<div class='card'><h3>🕹️ MOVIMIENTO</h3>";
+  // CONTROL + HOME RECUPERADO
+  h += "<div class='card'><h3>⏯ CONTROL</h3>";
+  // AQUI ESTA EL BOTON HOME DE NUEVO
   h += "<button class='btn-yell' style='width:100%;margin-bottom:10px' onclick=\"c('/cmd?gcode=G28')\">🏠 HOME (G28)</button>";
-  h += "<div class='gpad-grid'>";
-  h += "<div></div><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Y10 F3000 G90')\">⬆️ Y+</button><div></div>";
-  h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 X-10 F3000 G90')\">⬅️ X-</button>";
-  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=G90')\">🎯</button>";
-  h += "<button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 X10 F3000 G90')\">➡️ X+</button>";
-  h += "<div></div><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Y-10 F3000 G90')\">⬇️ Y-</button><div></div>";
-  h += "</div>";
-  h += "<div style='margin-top:10px'><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z10 F600 G90')\">⏫ Z+</button><button class='btn-gray' onclick=\"c('/cmd?gcode=G91 G1 Z-10 F600 G90')\">⏬ Z-</button></div></div>";
-
-  // CONTROL
-  h += "<div class='card'><h3>⏯ IMPRESION</h3>";
   h += "<button class='btn-yell' onclick=\"c('/cmd?act=PAUSE')\">PAUSA</button><button class='btn-green' onclick=\"c('/cmd?act=RESUME')\">PLAY</button><button class='btn-red' onclick=\"c('/cmd?act=STOP')\">STOP</button></div>";
 
-  // ARCHIVOS
   h += "<div class='card'><h3>📂 ARCHIVOS / CMD</h3>";
   h += "<input type='text' id='f' placeholder='archivo.gcode'><button class='btn-blue' onclick=\"c('/cmd?file='+document.getElementById('f').value)\">Print</button><br>";
   h += "<input type='text' id='g' placeholder='Gcode'><button class='btn-blue' onclick=\"c('/cmd?gcode='+document.getElementById('g').value)\">Send</button></div>";
 
-  // CONFIG LORA
-  h += "<div class='card'><h3>📡 CONFIG LORA</h3><form action='/lora' method='POST'>";
-  h += "<label>Perfil:</label><br><select name='prof'>";
-  h += "<option value='0' "+String(lora_profile==0?"selected":"")+">0: Rápido (Corto)</option>";
-  h += "<option value='2' "+String(lora_profile==2?"selected":"")+">2: Medio (Balance)</option>";
-  h += "<option value='3' "+String(lora_profile==3?"selected":"")+">3: Lento (Largo)</option></select><br>";
-  h += "<label>Potencia:</label><br><select name='pow'>";
-  h += "<option value='10' "+String(lora_power==10?"selected":"")+">10 (Baja)</option>";
-  h += "<option value='14' "+String(lora_power==14?"selected":"")+">14 (Media)</option>";
-  h += "<option value='22' "+String(lora_power==22?"selected":"")+">22 (Máxima)</option></select><br>";
-  h += "<button class='btn-green' type='submit'>GUARDAR LORA</button></form></div>";
-
-  // WIFI / OTA
   h += "<div class='card'><h3>⚙️ SISTEMA</h3>";
   h += "<form action='/wifi' method='POST'><input type='text' name='ssid' placeholder='SSID' value='"+wifi_sta_ssid+"'><input type='password' name='pass' placeholder='Pass'><button class='btn-green'>WiFi</button></form><br>";
-  h += "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update' style='width:60%'><button class='btn-yell'>OTA .BIN</button></form></div>";
+  h += "<form action='/lora' method='POST'><select name='prof'><option value='0'>Fast</option><option value='2' selected>Bal</option><option value='3'>Far</option></select><button class='btn-green'>LoRa</button></form><br>";
+  h += "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update' style='width:60%'><button class='btn-yell'>OTA</button></form></div>";
 
   h += "</body></html>";
   return h;
@@ -218,21 +182,10 @@ String getHtml() {
 
 // ================= SETUP =================
 void setup() {
-    Serial.begin(115200);
-    pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
-    pinMode(PRG_BUTTON, INPUT_PULLUP);
-    
-    preferences.begin("conf", false);
-    lora_profile = preferences.getInt("prof", 2); 
-    lora_power = preferences.getInt("pow", 14);
-    wifi_sta_ssid = preferences.getString("ssid", ""); 
-    wifi_sta_pass = preferences.getString("pass", ""); 
-    wifi_ap_pass = preferences.getString("appass", "");
-    preferences.end();
+    Serial.begin(115200); pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
+    pinMode(PRG_BUTTON, INPUT_PULLUP); delay(1000);
 
-    delay(1000);
-
-    // FIX OLED V41
+    // FIX OLED
     pinMode(Vext, OUTPUT); pinMode(RST_OLED, OUTPUT);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
@@ -246,20 +199,26 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V49..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V51..."); screen.display();
+    
+    preferences.begin("conf", false);
+    lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
+    wifi_sta_ssid = preferences.getString("ssid", ""); wifi_sta_pass = preferences.getString("pass", ""); wifi_ap_pass = preferences.getString("appass", "");
+    preferences.end();
     
     WiFi.mode(WIFI_AP_STA);
     if(wifi_ap_pass == "") WiFi.softAP("HP_Receptor", NULL); else WiFi.softAP("HP_Receptor", wifi_ap_pass.c_str());
     if(wifi_sta_ssid != "") WiFi.begin(wifi_sta_ssid.c_str(), wifi_sta_pass.c_str());
 
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
+    // JSON AMPLIADO
     server.on("/data", [](){ 
-        String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI())+"}"; 
+        String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI());
+        j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
+        j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan)+"}";
         server.send(200,"application/json",j); 
     });
-    server.on("/cmd", handleCommand);
-    server.on("/wifi", handleSaveWiFi);
-    server.on("/lora", handleSaveLoRa);
+    server.on("/cmd", handleCommand); server.on("/wifi", handleSaveWiFi); server.on("/lora", handleSaveLoRa);
     server.on("/update", HTTP_POST, [](){ server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK"); }, handleUpdate);
     server.begin();
 
@@ -271,34 +230,28 @@ void setup() {
         if(d.indexOf('|')>0) {
             p_perc=getValue(d,'|',0).toInt(); p_time=getValue(d,'|',1).toInt(); p_stat=getValue(d,'|',2);
             p_noz=getValue(d,'|',3).toInt(); p_bed=getValue(d,'|',4).toInt();
-            updateDisplay();
-            digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);
+            p_lay=getValue(d,'|',5).toInt(); p_totlay=getValue(d,'|',6).toInt(); p_fan=getValue(d,'|',7).toInt();
+            updateDisplay(); digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);
         }
         Radio.Rx(0);
     };
     Radio.Init(&RadioEvents); Radio.SetChannel(RF_FREQUENCY);
     configLoRa();
-    updateDisplay();
-    digitalWrite(LED_PIN, LOW);
+    updateDisplay(); digitalWrite(LED_PIN, LOW);
 }
 
 void loop() {
-    server.handleClient();
-    Radio.IrqProcess();
-    
+    server.handleClient(); Radio.IrqProcess();
     if(millis()-last_packet > 30000 && !signal_lost) { signal_lost=true; updateDisplay(); }
-    
     static long lastWifiCheck = 0;
     if(millis() - lastWifiCheck > 2000) {
         lastWifiCheck = millis();
         if(WiFi.status() == WL_CONNECTED && WiFi.RSSI() != wifi_rssi) updateDisplay();
     }
-
     int btnState = digitalRead(PRG_BUTTON);
     if (btnState == LOW && !btn_pressed) { btn_pressed = true; btn_press_start = millis(); }
     if (btnState == HIGH && btn_pressed) {
         unsigned long duration = millis() - btn_press_start; btn_pressed = false;
-        if (duration < 2000) sendCommand("ACT:PAUSE"); 
-        else sendCommand("ACT:STOP");
+        if (duration < 2000) sendCommand("ACT:PAUSE"); else sendCommand("ACT:STOP");
     }
 }

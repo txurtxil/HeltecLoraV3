@@ -1,5 +1,4 @@
-
-/* CODIGO RECEPTOR V52 - DASHBOARD + SPEED CONTROL + HOME */
+/* CODIGO RECEPTOR V53 - NOMBRE PIEZA + TITLE SPEED UPDATE */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -30,10 +29,11 @@ static RadioEvents_t RadioEvents;
 
 int rx_rssi_lora=0; long wifi_rssi=0; unsigned long last_packet=0; bool signal_lost=false;
 
-// ESTADO IMPRESORA
+// ESTADO AMPLIADO V53
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
 int p_noz=0; int p_bed=0;
 int p_lay=0; int p_totlay=0; int p_fan=0;
+int p_spd=2; String p_file="--";
 
 // CONFIG
 int lora_profile=2; int lora_power=14;
@@ -68,8 +68,12 @@ void updateDisplay() {
         screen.setTextAlignment(TEXT_ALIGN_LEFT); 
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 15, String(p_perc) + "%");
+        
         screen.setFont(ArialMT_Plain_10);
-        screen.drawString(60, 15, p_stat.substring(0, 10)); 
+        // AQUI MOSTRAMOS EL FICHERO EN VEZ DE ESTADO SI ESTA IMPRIMIENDO
+        if(p_stat == "RUNNING") screen.drawString(60, 15, p_file);
+        else screen.drawString(60, 15, p_stat.substring(0, 10)); 
+        
         screen.drawString(60, 26, "Lay: " + String(p_lay) + "/" + String(p_totlay));
         screen.drawString(60, 36, "Fan: " + String(p_fan) + "%");
         screen.drawLine(0, 48, 128, 48);
@@ -145,31 +149,36 @@ String getHtml() {
   h += "document.getElementById('noz').innerText=d.noz+'°C';";
   h += "document.getElementById('bed').innerText=d.bed+'°C';";
   h += "document.getElementById('tim').innerText=d.tim+' min';";
+  // Nombre fichero en Header
+  h += "document.getElementById('fn').innerText=d.fn;"; 
+  // Titulo Velocidad Dinamico
+  h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];";
+  h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[d.spd];";
+  
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V52</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V53</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando...</div>";
-  h += "<div class='card'><h1 id='p'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
+  // HEADER CON NOMBRE DE FICHERO
+  h += "<div class='card'><h3 id='fn' style='color:#0ff;margin:0;'>--</h3><h1 id='p' style='font-size:50px'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
   
-  // DASHBOARD
   h += "<div class='card'><h3>📊 DATOS IMPRESORA</h3><div class='stat-grid'>";
   h += "<div class='stat-box'>🌡️ Nozzle: <span id='noz'>"+String(p_noz)+"°C</span></div>";
   h += "<div class='stat-box'>🛌 Bed: <span id='bed'>"+String(p_bed)+"°C</span></div>";
   h += "<div class='stat-box'>🍰 Capa: <span id='lay'>"+String(p_lay)+" / "+String(p_totlay)+"</span></div>";
   h += "<div class='stat-box'>🌀 Fan: <span id='fan'>"+String(p_fan)+"%</span></div>";
-  h += "<div class='stat-box'>⏳ Tiempo: <span id='tim'>"+String(p_time)+" min</span></div>";
+  h += "<div class='stat-box'>⏳ Restante: <span id='tim'>"+String(p_time)+" min</span></div>";
   h += "</div></div>";
 
-  // --- NUEVO: CONTROL DE VELOCIDAD ---
-  h += "<div class='card'><h3>🚀 VELOCIDAD</h3><div class='grid-2'>";
+  // TITULO DE VELOCIDAD DINAMICO (ID=spd_title)
+  h += "<div class='card'><h3 id='spd_title'>🚀 VELOCIDAD</h3><div class='grid-2'>";
   h += "<button class='btn-green' onclick=\"c('/cmd?gcode=M220 S50')\">Silencioso (50%)</button>";
   h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=M220 S100')\">Normal (100%)</button>";
   h += "<button class='btn-yell' onclick=\"c('/cmd?gcode=M220 S124')\">Sport (124%)</button>";
   h += "<button class='btn-red' onclick=\"c('/cmd?gcode=M220 S166')\">Ludicrous (166%)</button>";
   h += "</div></div>";
 
-  // CONTROL BASICO
   h += "<div class='card'><h3>⏯ CONTROL</h3>";
   h += "<button class='btn-yell' style='width:100%;margin-bottom:10px' onclick=\"c('/cmd?gcode=G28')\">🏠 HOME (G28)</button>";
   h += "<button class='btn-yell' onclick=\"c('/cmd?act=PAUSE')\">PAUSA</button><button class='btn-green' onclick=\"c('/cmd?act=RESUME')\">PLAY</button><button class='btn-red' onclick=\"c('/cmd?act=STOP')\">STOP</button></div>";
@@ -206,7 +215,7 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V52..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V53..."); screen.display();
     
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
@@ -218,10 +227,12 @@ void setup() {
     if(wifi_sta_ssid != "") WiFi.begin(wifi_sta_ssid.c_str(), wifi_sta_pass.c_str());
 
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
+    // JSON AMPLIADO V53
     server.on("/data", [](){ 
         String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI());
         j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
-        j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan)+"}";
+        j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan);
+        j += ",\"spd\":"+String(p_spd)+",\"fn\":\""+p_file+"\"}";
         server.send(200,"application/json",j); 
     });
     server.on("/cmd", handleCommand); server.on("/wifi", handleSaveWiFi); server.on("/lora", handleSaveLoRa);
@@ -237,6 +248,9 @@ void setup() {
             p_perc=getValue(d,'|',0).toInt(); p_time=getValue(d,'|',1).toInt(); p_stat=getValue(d,'|',2);
             p_noz=getValue(d,'|',3).toInt(); p_bed=getValue(d,'|',4).toInt();
             p_lay=getValue(d,'|',5).toInt(); p_totlay=getValue(d,'|',6).toInt(); p_fan=getValue(d,'|',7).toInt();
+            // NUEVOS DATOS V53
+            p_spd=getValue(d,'|',8).toInt(); p_file=getValue(d,'|',9);
+            
             updateDisplay(); digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);
         }
         Radio.Rx(0);

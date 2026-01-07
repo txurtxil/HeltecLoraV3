@@ -1,5 +1,4 @@
-
-/* CODIGO EMISOR V52 - SPEED CONTROL + FAN FIX + OLED FIX */
+/* CODIGO EMISOR V53 - NOMBRE PIEZA + VELOCIDAD REAL + FIXES */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h> 
@@ -44,7 +43,7 @@ bool configMode = false;
 String printer_ip = ""; bool printer_found = false; 
 int lora_profile = 2; int lora_power = 14;
 
-// DATOS IMPRESORA
+// DATOS IMPRESORA AMPLIADOS
 int print_percent=0; 
 int time_remaining=0; 
 String print_status="OFF";
@@ -53,28 +52,24 @@ int temp_bed=0;
 int layer_num=0; 
 int total_layer_num=0; 
 int fan_speed=0; 
+int spd_lvl=2; // 1=Silent, 2=Normal, 3=Sport, 4=Ludicrous
+String file_name="--";
 
 const int BUFFER_SIZE = 20480; char jsonBuffer[BUFFER_SIZE]; 
 String last_cmd_screen = ""; long last_cmd_time = 0;
 
-// --- FUNCIONES ---
-
+// FUNCIONES
 void sendMqttCommand(String cmdRaw) {
     if(!client.connected()) return;
-    
-    // Limpieza de espacios para G-Code
-    cmdRaw.replace("+", " "); 
-    cmdRaw.replace("%20", " ");
+    cmdRaw.replace("+", " "); cmdRaw.replace("%20", " ");
     
     String jsonPayload = "";
     String topic_pub = "device/" + printer_serial + "/request";
-    
     int sep = cmdRaw.indexOf(':');
     String type = cmdRaw.substring(0, sep);
     String val = cmdRaw.substring(sep+1);
 
-    last_cmd_screen = "RX: " + val; 
-    last_cmd_time = millis();
+    last_cmd_screen = "RX: " + val; last_cmd_time = millis();
 
     if(type == "ACT") {
         if(val == "PAUSE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"pause\"}}";
@@ -82,7 +77,6 @@ void sendMqttCommand(String cmdRaw) {
         else if(val == "STOP") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"stop\"}}";
     }
     else if(type == "GCODE") {
-        // Envia comando G-Code directo (Sirve para M220 Velocidad, G28 Home, etc.)
         jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"" + val + "\\n\"}}";
     }
     else if(type == "FILE") {
@@ -108,7 +102,7 @@ void configLoRa() {
 
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#111;color:#eee;font-family:sans-serif;text-align:center;}input,button{width:100%;padding:10px;margin:5px 0;box-sizing:border-box;} .box{border:1px solid #444; padding:10px; margin:10px; border-radius:10px;}</style></head><body>";
-  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V52</h2>";
+  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V53</h2>";
   h += "<h3>" + String(print_percent) + "% " + print_status + "</h3>";
   h += "<div class='box'><h3>🖨️ IMPRESORA</h3><form action='/save' method='POST'>";
   h += "<label>Serial:</label><input type='text' name='serial' value='" + printer_serial + "'>";
@@ -157,7 +151,6 @@ void setup() {
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
 
-    // BARRA PROGRESO CONFIG
     for(int i=0; i<=100; i+=2) {
         screen.clear(); screen.setTextAlignment(TEXT_ALIGN_CENTER); screen.setFont(ArialMT_Plain_10);
         screen.drawString(64, 10, "Pulsa PRG para CONFIG");
@@ -224,7 +217,7 @@ void loop() {
 }
 
 void reconnect() {
-    String id = "E52-"+String(random(0xffff),HEX);
+    String id = "E53-"+String(random(0xffff),HEX);
     if(client.connect(id.c_str(),"bblp",stored_access_code.c_str())) { 
         client.subscribe(("device/" + printer_serial + "/report").c_str()); 
     }
@@ -234,7 +227,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(length>=BUFFER_SIZE) return;
     memcpy(jsonBuffer, payload, length); jsonBuffer[length]=0;
     
-    // Filtros de datos
     StaticJsonDocument<512> f; 
     f["print"]["mc_percent"]=true; 
     f["print"]["mc_remaining_time"]=true;
@@ -244,6 +236,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
     f["print"]["layer_num"]=true;
     f["print"]["total_layer_num"]=true;
     f["print"]["fan_gear"]=true;
+    f["print"]["spd_lvl"]=true;      // NUEVO: Nivel Velocidad
+    f["print"]["subtask_name"]=true; // NUEVO: Nombre Fichero
 
     StaticJsonDocument<2048> doc; deserializeJson(doc, jsonBuffer, DeserializationOption::Filter(f));
     JsonObject p = doc["print"];
@@ -255,28 +249,32 @@ void callback(char* topic, byte* payload, unsigned int length) {
         if(p.containsKey("bed_temper")) temp_bed=p["bed_temper"];
         if(p.containsKey("layer_num")) layer_num=p["layer_num"];
         if(p.containsKey("total_layer_num")) total_layer_num=p["total_layer_num"];
-        // --- FIX VENTILADOR 0-255 a 0-100 ---
+        if(p.containsKey("spd_lvl")) spd_lvl=p["spd_lvl"];
+        if(p.containsKey("subtask_name")) {
+            file_name = p["subtask_name"].as<String>();
+            file_name.replace(".gcode",""); // Quitar extension
+            if(file_name.length() > 15) file_name = file_name.substring(0, 15); // Recortar
+        }
+        
         if(p.containsKey("fan_gear")) {
              int raw_fan = p["fan_gear"];
-             if(raw_fan == 0) fan_speed = 0;
-             else fan_speed = map(raw_fan, 0, 255, 0, 100);
+             if(raw_fan == 0) fan_speed = 0; else fan_speed = map(raw_fan, 0, 255, 0, 100);
         }
     }
 }
 
 void sendLoRa() {
-    // PAQUETE COMPLETO
-    char p[128]; 
-    snprintf(p,128,"%d|%d|%s|%d|%d|%d|%d|%d",
+    // PAQUETE AMPLIADO: |spd_lvl|file_name
+    char p[200]; 
+    snprintf(p,200,"%d|%d|%s|%d|%d|%d|%d|%d|%d|%s",
              print_percent, time_remaining, print_status.c_str(), temp_nozzle, temp_bed, 
-             layer_num, total_layer_num, fan_speed);
+             layer_num, total_layer_num, fan_speed, spd_lvl, file_name.c_str());
     Radio.Send((uint8_t*)p, strlen(p));
 }
 
 void updateOled() {
     screen.clear(); screen.setFont(ArialMT_Plain_10); 
     
-    // Linea 1
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(client.connected()) screen.drawString(0,0, "LINK: OK");
     else if(printer_found) screen.drawString(0,0, "LINK: Conn");
@@ -293,7 +291,8 @@ void updateOled() {
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 16, String(print_percent) + "%");
         screen.setFont(ArialMT_Plain_10);
-        screen.drawString(60, 16, print_status.substring(0, 8)); 
+        // Mostrar Nombre Fichero recortado
+        screen.drawString(60, 16, file_name); 
         screen.drawString(60, 28, String(time_remaining) + " min");
         screen.drawLine(0, 46, 128, 46);
         String temps = "N:" + String(temp_nozzle) + " B:" + String(temp_bed);

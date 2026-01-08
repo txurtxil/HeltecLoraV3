@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V53 - NOMBRE PIEZA + TITLE SPEED UPDATE */
+/* CODIGO RECEPTOR V54 - FIX NOMBRE Y VELOCIDAD ? */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -29,7 +29,7 @@ static RadioEvents_t RadioEvents;
 
 int rx_rssi_lora=0; long wifi_rssi=0; unsigned long last_packet=0; bool signal_lost=false;
 
-// ESTADO AMPLIADO V53
+// ESTADO IMPRESORA
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
 int p_noz=0; int p_bed=0;
 int p_lay=0; int p_totlay=0; int p_fan=0;
@@ -70,8 +70,8 @@ void updateDisplay() {
         screen.drawString(0, 15, String(p_perc) + "%");
         
         screen.setFont(ArialMT_Plain_10);
-        // AQUI MOSTRAMOS EL FICHERO EN VEZ DE ESTADO SI ESTA IMPRIMIENDO
-        if(p_stat == "RUNNING") screen.drawString(60, 15, p_file);
+        // Si hay nombre de fichero, lo mostramos, si no el estado
+        if(p_file != "" && p_file != "--" && p_file != "Sin Archivo") screen.drawString(60, 15, p_file);
         else screen.drawString(60, 15, p_stat.substring(0, 10)); 
         
         screen.drawString(60, 26, "Lay: " + String(p_lay) + "/" + String(p_totlay));
@@ -135,7 +135,7 @@ String getHtml() {
   h += ".sig-bar{font-size:12px;background:#000;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
   h += "input,select{width:65%;padding:8px;background:#333;border:1px solid #555;color:white;border-radius:5px;}";
   h += "button{padding:8px 15px;border:none;border-radius:5px;color:white;font-weight:bold;cursor:pointer;margin:2px;}";
-  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-gray{background:#555;}";
+  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;}";
   h += ".stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;text-align:left;padding:10px;}";
   h += ".stat-box{background:#333;padding:5px;border-radius:5px;}";
   h += ".grid-2{display:grid;grid-template-columns:1fr 1fr;gap:5px;}";
@@ -151,13 +151,15 @@ String getHtml() {
   h += "document.getElementById('tim').innerText=d.tim+' min';";
   // Nombre fichero en Header
   h += "document.getElementById('fn').innerText=d.fn;"; 
-  // Titulo Velocidad Dinamico
+  
+  // Titulo Velocidad Dinamico (Mapeo Seguro)
   h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];";
-  h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[d.spd];";
+  h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; // Si es 0 o null, fuerza Normal
+  h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[spdIdx];";
   
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V53</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V54</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando...</div>";
   // HEADER CON NOMBRE DE FICHERO
@@ -215,7 +217,7 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V53..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V54..."); screen.display();
     
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
@@ -227,7 +229,7 @@ void setup() {
     if(wifi_sta_ssid != "") WiFi.begin(wifi_sta_ssid.c_str(), wifi_sta_pass.c_str());
 
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
-    // JSON AMPLIADO V53
+    // JSON AMPLIADO V54
     server.on("/data", [](){ 
         String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI());
         j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
@@ -248,7 +250,7 @@ void setup() {
             p_perc=getValue(d,'|',0).toInt(); p_time=getValue(d,'|',1).toInt(); p_stat=getValue(d,'|',2);
             p_noz=getValue(d,'|',3).toInt(); p_bed=getValue(d,'|',4).toInt();
             p_lay=getValue(d,'|',5).toInt(); p_totlay=getValue(d,'|',6).toInt(); p_fan=getValue(d,'|',7).toInt();
-            // NUEVOS DATOS V53
+            // DATOS NUEVOS V53/54
             p_spd=getValue(d,'|',8).toInt(); p_file=getValue(d,'|',9);
             
             updateDisplay(); digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);

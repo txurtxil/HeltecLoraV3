@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V55 - GESTOR DE FILAMENTO + FULL DATA */
+/* CODIGO RECEPTOR V55 - GESTOR FILAMENTO + FULL DATA (CORREGIDO) */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -36,7 +36,7 @@ int p_lay=0; int p_totlay=0; int p_fan=0;
 int p_spd=2; String p_file="--";
 
 // GESTION FILAMENTO
-int fila_total = 1000; // Gramos restantes
+int fila_total = 1000; 
 
 // CONFIG
 int lora_profile=2; int lora_power=14;
@@ -53,7 +53,6 @@ String getValue(String d, char s, int i) {
 void updateDisplay() {
     screen.clear(); screen.setFont(ArialMT_Plain_10); 
     
-    // Header
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(WiFi.status() == WL_CONNECTED) { screen.drawString(0, 0, WiFi.localIP().toString()); wifi_rssi = WiFi.RSSI(); } 
     else { screen.drawString(0, 0, "AP: 192.168.4.1"); wifi_rssi = 0; }
@@ -77,7 +76,6 @@ void updateDisplay() {
         if(p_file != "" && p_file != "--" && p_file != "Sin Archivo") screen.drawString(60, 15, p_file);
         else screen.drawString(60, 15, p_stat.substring(0, 10)); 
         
-        // MOSTRAR FILAMENTO RESTANTE EN PANTALLA
         screen.drawString(60, 26, "Fila: " + String(fila_total) + "g");
         screen.drawString(60, 36, "Fan: " + String(p_fan) + "%");
         
@@ -110,25 +108,18 @@ void handleCommand() {
     else server.send(400, "text/plain", "Error");
 }
 
-// HANDLER FILAMENTO
 void handleFilament() {
     preferences.begin("conf", false);
-    
     if(server.hasArg("set")) {
-        // Establecer nuevo rollo (ej: 1000)
         fila_total = server.arg("set").toInt();
     } 
     else if(server.hasArg("sub")) {
-        // Restar consumo (ej: 35g)
         int sub = server.arg("sub").toInt();
         fila_total -= sub;
         if(fila_total < 0) fila_total = 0;
     }
-    
     preferences.putInt("fila", fila_total);
     preferences.end();
-    
-    // Redirigir de nuevo a la web principal
     server.sendHeader("Location", "/");
     server.send(303);
     updateDisplay();
@@ -178,13 +169,13 @@ String getHtml() {
   h += "document.getElementById('noz').innerText=d.noz+'°C';";
   h += "document.getElementById('bed').innerText=d.bed+'°C';";
   h += "document.getElementById('tim').innerText=d.tim+' min';";
-  
-  // Update Filamento
   h += "document.getElementById('fila_val').innerText=d.fila+'g';";
-  
   h += "document.getElementById('fn').innerText=d.fn;"; 
   
-  let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];
+  // --- AQUI ESTABA EL ERROR CORREGIDO ---
+  h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];"; // Ahora dentro de comillas
+  // -------------------------------------
+  
   h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; 
   h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[spdIdx];";
   
@@ -203,7 +194,6 @@ String getHtml() {
   h += "<div class='stat-box'>⏳ Restante: <span id='tim'>"+String(p_time)+" min</span></div>";
   h += "</div></div>";
 
-  // --- GESTOR DE FILAMENTO ---
   h += "<div class='card'><h3>🧵 GESTIÓN FILAMENTO</h3>";
   h += "<h1 id='fila_val' style='color:#ff00ff; margin:5px;'>"+String(fila_total)+"g</h1>";
   h += "<p style='color:#aaa;font-size:12px'>Restar lo que indique el Slicer</p>";
@@ -216,7 +206,6 @@ String getHtml() {
   h += "<form action='/fila' method='POST'><button class='btn-green' name='set' value='1000' style='width:100%'>Nuevo 1Kg</button></form>";
   h += "<form action='/fila' method='POST'><button class='btn-green' name='set' value='250' style='width:100%'>Nuevo 250g</button></form>";
   h += "</div></div>";
-  // ---------------------------
 
   h += "<div class='card'><h3 id='spd_title'>🚀 VELOCIDAD</h3><div class='grid-2'>";
   h += "<button class='btn-green' onclick=\"c('/cmd?gcode=M220 S50')\">Silencioso</button>";
@@ -242,7 +231,6 @@ String getHtml() {
   return h;
 }
 
-// ================= SETUP =================
 void setup() {
     Serial.begin(115200); pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
     pinMode(PRG_BUTTON, INPUT_PULLUP); delay(1000);
@@ -265,10 +253,7 @@ void setup() {
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
     wifi_sta_ssid = preferences.getString("ssid", ""); wifi_sta_pass = preferences.getString("pass", ""); wifi_ap_pass = preferences.getString("appass", "");
-    
-    // CARGAR FILAMENTO GUARDADO
     fila_total = preferences.getInt("fila", 1000);
-    
     preferences.end();
     
     WiFi.mode(WIFI_AP_STA);
@@ -277,21 +262,19 @@ void setup() {
 
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
     
-    // JSON AMPLIADO V55 (Incluye Filamento 'fila')
     server.on("/data", [](){ 
         String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI());
         j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
         j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan);
         j += ",\"spd\":"+String(p_spd)+",\"fn\":\""+p_file+"\"";
-        j += ",\"fila\":"+String(fila_total)+"}"; // NUEVO DATO
+        j += ",\"fila\":"+String(fila_total)+"}";
         server.send(200,"application/json",j); 
     });
     
     server.on("/cmd", handleCommand); 
     server.on("/wifi", handleSaveWiFi); 
     server.on("/lora", handleSaveLoRa);
-    server.on("/fila", handleFilament); // NUEVO HANDLER
-    
+    server.on("/fila", handleFilament); 
     server.on("/update", HTTP_POST, [](){ server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK"); }, handleUpdate);
     server.begin();
 

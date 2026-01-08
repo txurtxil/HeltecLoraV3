@@ -1,4 +1,4 @@
-/* CODIGO EMISOR V54 - MEMORIA DE DATOS + FIX NOMBRE/VELOCIDAD */
+/* CODIGO EMISOR V56 - FIX VELOCIDAD NATIVA BAMBU */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h> 
@@ -43,7 +43,7 @@ bool configMode = false;
 String printer_ip = ""; bool printer_found = false; 
 int lora_profile = 2; int lora_power = 14;
 
-// DATOS IMPRESORA (Con valores por defecto para no enviar vacio)
+// DATOS
 int print_percent=0; 
 int time_remaining=0; 
 String print_status="Conectando...";
@@ -52,7 +52,7 @@ int temp_bed=0;
 int layer_num=0; 
 int total_layer_num=0; 
 int fan_speed=0; 
-int spd_lvl=2; // Empezamos en 2 (Normal) por defecto
+int spd_lvl=2; 
 String file_name="Sin Archivo"; 
 
 const int BUFFER_SIZE = 20480; char jsonBuffer[BUFFER_SIZE]; 
@@ -75,6 +75,13 @@ void sendMqttCommand(String cmdRaw) {
         if(val == "PAUSE") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"pause\"}}";
         else if(val == "RESUME") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"resume\"}}";
         else if(val == "STOP") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"stop\"}}";
+        
+        // --- NUEVO: COMANDOS NATIVOS DE VELOCIDAD ---
+        // 1=Silent, 2=Standard, 3=Sport, 4=Ludicrous
+        else if(val == "SPD_1") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"print_speed\", \"param\": \"1\"}}";
+        else if(val == "SPD_2") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"print_speed\", \"param\": \"2\"}}";
+        else if(val == "SPD_3") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"print_speed\", \"param\": \"3\"}}";
+        else if(val == "SPD_4") jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"print_speed\", \"param\": \"4\"}}";
     }
     else if(type == "GCODE") {
         jsonPayload = "{\"print\": {\"sequence_id\": \"0\", \"command\": \"gcode_line\", \"param\": \"" + val + "\\n\"}}";
@@ -102,7 +109,7 @@ void configLoRa() {
 
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#111;color:#eee;font-family:sans-serif;text-align:center;}input,button{width:100%;padding:10px;margin:5px 0;box-sizing:border-box;} .box{border:1px solid #444; padding:10px; margin:10px; border-radius:10px;}</style></head><body>";
-  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V54</h2>";
+  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V56</h2>";
   h += "<h3>" + String(print_percent) + "% " + print_status + "</h3>";
   h += "<div class='box'><h3>🖨️ IMPRESORA</h3><form action='/save' method='POST'>";
   h += "<label>Serial:</label><input type='text' name='serial' value='" + printer_serial + "'>";
@@ -217,7 +224,7 @@ void loop() {
 }
 
 void reconnect() {
-    String id = "E54-"+String(random(0xffff),HEX);
+    String id = "E56-"+String(random(0xffff),HEX);
     if(client.connect(id.c_str(),"bblp",stored_access_code.c_str())) { 
         client.subscribe(("device/" + printer_serial + "/report").c_str()); 
     }
@@ -227,7 +234,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(length>=BUFFER_SIZE) return;
     memcpy(jsonBuffer, payload, length); jsonBuffer[length]=0;
     
-    // AMPLIAMOS EL FILTRO (1024) para que no se pierdan datos
     StaticJsonDocument<1024> f; 
     f["print"]["mc_percent"]=true; 
     f["print"]["mc_remaining_time"]=true;
@@ -251,12 +257,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
         if(p.containsKey("layer_num")) layer_num=p["layer_num"];
         if(p.containsKey("total_layer_num")) total_layer_num=p["total_layer_num"];
         
-        // MEMORIA: SOLO ACTUALIZAR SI VIENE EL DATO (NO SOBRESCRIBIR CON 0)
         if(p.containsKey("spd_lvl")) spd_lvl=p["spd_lvl"];
         
         if(p.containsKey("subtask_name")) {
             String tempName = p["subtask_name"].as<String>();
-            // Solo actualizamos si trae nombre real
             if(tempName != "" && tempName != "null") {
                 file_name = tempName;
                 file_name.replace(".gcode",""); 
@@ -298,7 +302,7 @@ void updateOled() {
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 16, String(print_percent) + "%");
         screen.setFont(ArialMT_Plain_10);
-        screen.drawString(60, 16, file_name); // Muestra nombre en Emisor tambien
+        screen.drawString(60, 16, file_name); 
         screen.drawString(60, 28, String(time_remaining) + " min");
         screen.drawLine(0, 46, 128, 46);
         String temps = "N:" + String(temp_nozzle) + " B:" + String(temp_bed);

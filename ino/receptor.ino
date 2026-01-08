@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V54 - FIX NOMBRE Y VELOCIDAD ? */
+/* CODIGO RECEPTOR V55 - GESTOR DE FILAMENTO + FULL DATA */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -35,6 +35,9 @@ int p_noz=0; int p_bed=0;
 int p_lay=0; int p_totlay=0; int p_fan=0;
 int p_spd=2; String p_file="--";
 
+// GESTION FILAMENTO
+int fila_total = 1000; // Gramos restantes
+
 // CONFIG
 int lora_profile=2; int lora_power=14;
 String wifi_sta_ssid=""; String wifi_sta_pass=""; String wifi_ap_pass=""; 
@@ -50,6 +53,7 @@ String getValue(String d, char s, int i) {
 void updateDisplay() {
     screen.clear(); screen.setFont(ArialMT_Plain_10); 
     
+    // Header
     screen.setTextAlignment(TEXT_ALIGN_LEFT); 
     if(WiFi.status() == WL_CONNECTED) { screen.drawString(0, 0, WiFi.localIP().toString()); wifi_rssi = WiFi.RSSI(); } 
     else { screen.drawString(0, 0, "AP: 192.168.4.1"); wifi_rssi = 0; }
@@ -70,12 +74,13 @@ void updateDisplay() {
         screen.drawString(0, 15, String(p_perc) + "%");
         
         screen.setFont(ArialMT_Plain_10);
-        // Si hay nombre de fichero, lo mostramos, si no el estado
         if(p_file != "" && p_file != "--" && p_file != "Sin Archivo") screen.drawString(60, 15, p_file);
         else screen.drawString(60, 15, p_stat.substring(0, 10)); 
         
-        screen.drawString(60, 26, "Lay: " + String(p_lay) + "/" + String(p_totlay));
+        // MOSTRAR FILAMENTO RESTANTE EN PANTALLA
+        screen.drawString(60, 26, "Fila: " + String(fila_total) + "g");
         screen.drawString(60, 36, "Fan: " + String(p_fan) + "%");
+        
         screen.drawLine(0, 48, 128, 48);
         String temps = "N:" + String(p_noz) + " B:" + String(p_bed) + " T:" + String(p_time)+"m";
         screen.drawString(0, 50, temps);
@@ -103,6 +108,30 @@ void handleCommand() {
     else if(server.hasArg("gcode")) { sendCommand("GCODE:"+server.arg("gcode")); server.send(200, "text/plain", "OK"); }
     else if(server.hasArg("file")) { sendCommand("FILE:"+server.arg("file")); server.send(200, "text/plain", "OK"); }
     else server.send(400, "text/plain", "Error");
+}
+
+// HANDLER FILAMENTO
+void handleFilament() {
+    preferences.begin("conf", false);
+    
+    if(server.hasArg("set")) {
+        // Establecer nuevo rollo (ej: 1000)
+        fila_total = server.arg("set").toInt();
+    } 
+    else if(server.hasArg("sub")) {
+        // Restar consumo (ej: 35g)
+        int sub = server.arg("sub").toInt();
+        fila_total -= sub;
+        if(fila_total < 0) fila_total = 0;
+    }
+    
+    preferences.putInt("fila", fila_total);
+    preferences.end();
+    
+    // Redirigir de nuevo a la web principal
+    server.sendHeader("Location", "/");
+    server.send(303);
+    updateDisplay();
 }
 
 void handleSaveWiFi() {
@@ -133,9 +162,9 @@ String getHtml() {
   h += ".card{background:#222;padding:10px;margin:10px auto;border-radius:12px;max-width:400px;border:1px solid #444;}";
   h += "h1{margin:0;font-size:35px;color:#00d2ff;} h3{border-bottom:1px solid #555;padding-bottom:5px;color:#aaa;}";
   h += ".sig-bar{font-size:12px;background:#000;padding:5px;border-radius:5px;margin-bottom:10px;color:#0f0;}";
-  h += "input,select{width:65%;padding:8px;background:#333;border:1px solid #555;color:white;border-radius:5px;}";
+  h += "input,select{width:60%;padding:8px;background:#333;border:1px solid #555;color:white;border-radius:5px;}";
   h += "button{padding:8px 15px;border:none;border-radius:5px;color:white;font-weight:bold;cursor:pointer;margin:2px;}";
-  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;}";
+  h += ".btn-blue{background:#007bff;} .btn-green{background:#28a745;} .btn-red{background:#dc3545;} .btn-yell{background:#ffc107;color:black;} .btn-purp{background:#6f42c1;}";
   h += ".stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;text-align:left;padding:10px;}";
   h += ".stat-box{background:#333;padding:5px;border-radius:5px;}";
   h += ".grid-2{display:grid;grid-template-columns:1fr 1fr;gap:5px;}";
@@ -149,20 +178,21 @@ String getHtml() {
   h += "document.getElementById('noz').innerText=d.noz+'°C';";
   h += "document.getElementById('bed').innerText=d.bed+'°C';";
   h += "document.getElementById('tim').innerText=d.tim+' min';";
-  // Nombre fichero en Header
+  
+  // Update Filamento
+  h += "document.getElementById('fila_val').innerText=d.fila+'g';";
+  
   h += "document.getElementById('fn').innerText=d.fn;"; 
   
-  // Titulo Velocidad Dinamico (Mapeo Seguro)
-  h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];";
-  h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; // Si es 0 o null, fuerza Normal
+  let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];
+  h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; 
   h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[spdIdx];";
   
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V54</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V55</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando...</div>";
-  // HEADER CON NOMBRE DE FICHERO
   h += "<div class='card'><h3 id='fn' style='color:#0ff;margin:0;'>--</h3><h1 id='p' style='font-size:50px'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
   
   h += "<div class='card'><h3>📊 DATOS IMPRESORA</h3><div class='stat-grid'>";
@@ -173,12 +203,26 @@ String getHtml() {
   h += "<div class='stat-box'>⏳ Restante: <span id='tim'>"+String(p_time)+" min</span></div>";
   h += "</div></div>";
 
-  // TITULO DE VELOCIDAD DINAMICO (ID=spd_title)
+  // --- GESTOR DE FILAMENTO ---
+  h += "<div class='card'><h3>🧵 GESTIÓN FILAMENTO</h3>";
+  h += "<h1 id='fila_val' style='color:#ff00ff; margin:5px;'>"+String(fila_total)+"g</h1>";
+  h += "<p style='color:#aaa;font-size:12px'>Restar lo que indique el Slicer</p>";
+  
+  h += "<form action='/fila' method='POST' style='margin-bottom:10px'>";
+  h += "<input type='number' name='sub' placeholder='Gramos (ej: 45)' style='width:50%'> ";
+  h += "<button class='btn-purp' type='submit'>RESTAR</button></form>";
+  
+  h += "<div class='grid-2'>";
+  h += "<form action='/fila' method='POST'><button class='btn-green' name='set' value='1000' style='width:100%'>Nuevo 1Kg</button></form>";
+  h += "<form action='/fila' method='POST'><button class='btn-green' name='set' value='250' style='width:100%'>Nuevo 250g</button></form>";
+  h += "</div></div>";
+  // ---------------------------
+
   h += "<div class='card'><h3 id='spd_title'>🚀 VELOCIDAD</h3><div class='grid-2'>";
-  h += "<button class='btn-green' onclick=\"c('/cmd?gcode=M220 S50')\">Silencioso (50%)</button>";
-  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=M220 S100')\">Normal (100%)</button>";
-  h += "<button class='btn-yell' onclick=\"c('/cmd?gcode=M220 S124')\">Sport (124%)</button>";
-  h += "<button class='btn-red' onclick=\"c('/cmd?gcode=M220 S166')\">Ludicrous (166%)</button>";
+  h += "<button class='btn-green' onclick=\"c('/cmd?gcode=M220 S50')\">Silencioso</button>";
+  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=M220 S100')\">Normal</button>";
+  h += "<button class='btn-yell' onclick=\"c('/cmd?gcode=M220 S124')\">Sport</button>";
+  h += "<button class='btn-red' onclick=\"c('/cmd?gcode=M220 S166')\">Ludicrous</button>";
   h += "</div></div>";
 
   h += "<div class='card'><h3>⏯ CONTROL</h3>";
@@ -203,7 +247,6 @@ void setup() {
     Serial.begin(115200); pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
     pinMode(PRG_BUTTON, INPUT_PULLUP); delay(1000);
 
-    // FIX OLED
     pinMode(Vext, OUTPUT); pinMode(RST_OLED, OUTPUT);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
@@ -217,11 +260,15 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V54..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V55..."); screen.display();
     
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
     wifi_sta_ssid = preferences.getString("ssid", ""); wifi_sta_pass = preferences.getString("pass", ""); wifi_ap_pass = preferences.getString("appass", "");
+    
+    // CARGAR FILAMENTO GUARDADO
+    fila_total = preferences.getInt("fila", 1000);
+    
     preferences.end();
     
     WiFi.mode(WIFI_AP_STA);
@@ -229,15 +276,22 @@ void setup() {
     if(wifi_sta_ssid != "") WiFi.begin(wifi_sta_ssid.c_str(), wifi_sta_pass.c_str());
 
     server.on("/", [](){ server.send(200, "text/html", getHtml()); });
-    // JSON AMPLIADO V54
+    
+    // JSON AMPLIADO V55 (Incluye Filamento 'fila')
     server.on("/data", [](){ 
         String j="{\"p\":"+String(p_perc)+",\"s\":\""+p_stat+"\",\"l\":"+String(rx_rssi_lora)+",\"w\":"+String(WiFi.RSSI());
         j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
         j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan);
-        j += ",\"spd\":"+String(p_spd)+",\"fn\":\""+p_file+"\"}";
+        j += ",\"spd\":"+String(p_spd)+",\"fn\":\""+p_file+"\"";
+        j += ",\"fila\":"+String(fila_total)+"}"; // NUEVO DATO
         server.send(200,"application/json",j); 
     });
-    server.on("/cmd", handleCommand); server.on("/wifi", handleSaveWiFi); server.on("/lora", handleSaveLoRa);
+    
+    server.on("/cmd", handleCommand); 
+    server.on("/wifi", handleSaveWiFi); 
+    server.on("/lora", handleSaveLoRa);
+    server.on("/fila", handleFilament); // NUEVO HANDLER
+    
     server.on("/update", HTTP_POST, [](){ server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK"); }, handleUpdate);
     server.begin();
 
@@ -250,9 +304,7 @@ void setup() {
             p_perc=getValue(d,'|',0).toInt(); p_time=getValue(d,'|',1).toInt(); p_stat=getValue(d,'|',2);
             p_noz=getValue(d,'|',3).toInt(); p_bed=getValue(d,'|',4).toInt();
             p_lay=getValue(d,'|',5).toInt(); p_totlay=getValue(d,'|',6).toInt(); p_fan=getValue(d,'|',7).toInt();
-            // DATOS NUEVOS V53/54
             p_spd=getValue(d,'|',8).toInt(); p_file=getValue(d,'|',9);
-            
             updateDisplay(); digitalWrite(LED_PIN, HIGH); delay(50); digitalWrite(LED_PIN, LOW);
         }
         Radio.Rx(0);

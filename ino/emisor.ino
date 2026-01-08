@@ -1,4 +1,4 @@
-/* CODIGO EMISOR V53 - NOMBRE PIEZA + VELOCIDAD REAL + FIXES */
+/* CODIGO EMISOR V54 - MEMORIA DE DATOS + FIX NOMBRE/VELOCIDAD */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h> 
@@ -43,17 +43,17 @@ bool configMode = false;
 String printer_ip = ""; bool printer_found = false; 
 int lora_profile = 2; int lora_power = 14;
 
-// DATOS IMPRESORA AMPLIADOS
+// DATOS IMPRESORA (Con valores por defecto para no enviar vacio)
 int print_percent=0; 
 int time_remaining=0; 
-String print_status="OFF";
+String print_status="Conectando...";
 int temp_nozzle=0; 
 int temp_bed=0; 
 int layer_num=0; 
 int total_layer_num=0; 
 int fan_speed=0; 
-int spd_lvl=2; // 1=Silent, 2=Normal, 3=Sport, 4=Ludicrous
-String file_name="--";
+int spd_lvl=2; // Empezamos en 2 (Normal) por defecto
+String file_name="Sin Archivo"; 
 
 const int BUFFER_SIZE = 20480; char jsonBuffer[BUFFER_SIZE]; 
 String last_cmd_screen = ""; long last_cmd_time = 0;
@@ -102,7 +102,7 @@ void configLoRa() {
 
 String getHtml() {
   String h = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#111;color:#eee;font-family:sans-serif;text-align:center;}input,button{width:100%;padding:10px;margin:5px 0;box-sizing:border-box;} .box{border:1px solid #444; padding:10px; margin:10px; border-radius:10px;}</style></head><body>";
-  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V53</h2>";
+  if(configMode) h += "<h2 style='color:orange'>MODO CONFIG</h2>"; else h += "<h2>EMISOR V54</h2>";
   h += "<h3>" + String(print_percent) + "% " + print_status + "</h3>";
   h += "<div class='box'><h3>🖨️ IMPRESORA</h3><form action='/save' method='POST'>";
   h += "<label>Serial:</label><input type='text' name='serial' value='" + printer_serial + "'>";
@@ -217,7 +217,7 @@ void loop() {
 }
 
 void reconnect() {
-    String id = "E53-"+String(random(0xffff),HEX);
+    String id = "E54-"+String(random(0xffff),HEX);
     if(client.connect(id.c_str(),"bblp",stored_access_code.c_str())) { 
         client.subscribe(("device/" + printer_serial + "/report").c_str()); 
     }
@@ -227,7 +227,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(length>=BUFFER_SIZE) return;
     memcpy(jsonBuffer, payload, length); jsonBuffer[length]=0;
     
-    StaticJsonDocument<512> f; 
+    // AMPLIAMOS EL FILTRO (1024) para que no se pierdan datos
+    StaticJsonDocument<1024> f; 
     f["print"]["mc_percent"]=true; 
     f["print"]["mc_remaining_time"]=true;
     f["print"]["gcode_state"]=true; 
@@ -236,10 +237,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
     f["print"]["layer_num"]=true;
     f["print"]["total_layer_num"]=true;
     f["print"]["fan_gear"]=true;
-    f["print"]["spd_lvl"]=true;      // NUEVO: Nivel Velocidad
-    f["print"]["subtask_name"]=true; // NUEVO: Nombre Fichero
+    f["print"]["spd_lvl"]=true;      
+    f["print"]["subtask_name"]=true; 
 
-    StaticJsonDocument<2048> doc; deserializeJson(doc, jsonBuffer, DeserializationOption::Filter(f));
+    StaticJsonDocument<4096> doc; deserializeJson(doc, jsonBuffer, DeserializationOption::Filter(f));
     JsonObject p = doc["print"];
     if(!p.isNull()) {
         if(p.containsKey("mc_percent")) print_percent=p["mc_percent"];
@@ -249,11 +250,18 @@ void callback(char* topic, byte* payload, unsigned int length) {
         if(p.containsKey("bed_temper")) temp_bed=p["bed_temper"];
         if(p.containsKey("layer_num")) layer_num=p["layer_num"];
         if(p.containsKey("total_layer_num")) total_layer_num=p["total_layer_num"];
+        
+        // MEMORIA: SOLO ACTUALIZAR SI VIENE EL DATO (NO SOBRESCRIBIR CON 0)
         if(p.containsKey("spd_lvl")) spd_lvl=p["spd_lvl"];
+        
         if(p.containsKey("subtask_name")) {
-            file_name = p["subtask_name"].as<String>();
-            file_name.replace(".gcode",""); // Quitar extension
-            if(file_name.length() > 15) file_name = file_name.substring(0, 15); // Recortar
+            String tempName = p["subtask_name"].as<String>();
+            // Solo actualizamos si trae nombre real
+            if(tempName != "" && tempName != "null") {
+                file_name = tempName;
+                file_name.replace(".gcode",""); 
+                if(file_name.length() > 15) file_name = file_name.substring(0, 15);
+            }
         }
         
         if(p.containsKey("fan_gear")) {
@@ -264,7 +272,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void sendLoRa() {
-    // PAQUETE AMPLIADO: |spd_lvl|file_name
     char p[200]; 
     snprintf(p,200,"%d|%d|%s|%d|%d|%d|%d|%d|%d|%s",
              print_percent, time_remaining, print_status.c_str(), temp_nozzle, temp_bed, 
@@ -291,8 +298,7 @@ void updateOled() {
         screen.setFont(ArialMT_Plain_24);
         screen.drawString(0, 16, String(print_percent) + "%");
         screen.setFont(ArialMT_Plain_10);
-        // Mostrar Nombre Fichero recortado
-        screen.drawString(60, 16, file_name); 
+        screen.drawString(60, 16, file_name); // Muestra nombre en Emisor tambien
         screen.drawString(60, 28, String(time_remaining) + " min");
         screen.drawLine(0, 46, 128, 46);
         String temps = "N:" + String(temp_nozzle) + " B:" + String(temp_bed);

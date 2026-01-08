@@ -1,4 +1,4 @@
-/* CODIGO RECEPTOR V55 - GESTOR FILAMENTO + FULL DATA (CORREGIDO) */
+/* CODIGO RECEPTOR V56 - FIX BOTONES VELOCIDAD + FILAMENTO */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -172,16 +172,13 @@ String getHtml() {
   h += "document.getElementById('fila_val').innerText=d.fila+'g';";
   h += "document.getElementById('fn').innerText=d.fn;"; 
   
-  // --- AQUI ESTABA EL ERROR CORREGIDO ---
-  h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];"; // Ahora dentro de comillas
-  // -------------------------------------
-  
+  h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];";
   h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; 
   h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[spdIdx];";
   
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm';})},2000);";
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V55</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V56</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando...</div>";
   h += "<div class='card'><h3 id='fn' style='color:#0ff;margin:0;'>--</h3><h1 id='p' style='font-size:50px'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
@@ -207,11 +204,12 @@ String getHtml() {
   h += "<form action='/fila' method='POST'><button class='btn-green' name='set' value='250' style='width:100%'>Nuevo 250g</button></form>";
   h += "</div></div>";
 
+  // --- BOTONES ARREGLADOS (ACT:SPD_X) ---
   h += "<div class='card'><h3 id='spd_title'>🚀 VELOCIDAD</h3><div class='grid-2'>";
-  h += "<button class='btn-green' onclick=\"c('/cmd?gcode=M220 S50')\">Silencioso</button>";
-  h += "<button class='btn-blue' onclick=\"c('/cmd?gcode=M220 S100')\">Normal</button>";
-  h += "<button class='btn-yell' onclick=\"c('/cmd?gcode=M220 S124')\">Sport</button>";
-  h += "<button class='btn-red' onclick=\"c('/cmd?gcode=M220 S166')\">Ludicrous</button>";
+  h += "<button class='btn-green' onclick=\"c('/cmd?act=SPD_1')\">Silencioso</button>";
+  h += "<button class='btn-blue' onclick=\"c('/cmd?act=SPD_2')\">Normal</button>";
+  h += "<button class='btn-yell' onclick=\"c('/cmd?act=SPD_3')\">Sport</button>";
+  h += "<button class='btn-red' onclick=\"c('/cmd?act=SPD_4')\">Ludicrous</button>";
   h += "</div></div>";
 
   h += "<div class='card'><h3>⏯ CONTROL</h3>";
@@ -248,7 +246,7 @@ void setup() {
         screen.init();
     }
     screen.flipScreenVertically(); screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V55..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V56..."); screen.display();
     
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);

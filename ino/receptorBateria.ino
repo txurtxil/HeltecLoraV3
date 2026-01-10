@@ -1,5 +1,4 @@
-
-/* CODIGO RECEPTOR V57 - FIX BATERIA + ROTACION */
+/* CODIGO RECEPTOR V58 - SOLO TEXTO BATERIA */
 #include "LoRaWan_APP.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -20,7 +19,7 @@
 // --- PINES BATERIA V3 ---
 #define VBAT_PIN       1
 #define BAT_ADC_EN     37
-const float VOLTAGE_MULTIPLIER = 4.90; // Ajustar si es necesario (4.90 es estandar V3)
+const float VOLTAGE_MULTIPLIER = 5.20; // Ajuste para detectar 100% y USB
 
 #define LORA_SCK 9
 #define LORA_MISO 11
@@ -34,7 +33,7 @@ Preferences preferences;
 static RadioEvents_t RadioEvents;
 
 int rx_rssi_lora=0; long wifi_rssi=0; unsigned long last_packet=0; bool signal_lost=false;
-int bat_percent = 0; // Variable global para bateria
+int bat_percent = 0; 
 
 // ESTADO IMPRESORA
 int p_perc=0; int p_time=0; String p_stat="ESPERANDO"; 
@@ -60,22 +59,17 @@ void initBattery() {
 
 int readBattery() {
     digitalWrite(BAT_ADC_EN, HIGH);
-    delay(10); // Estabilizar
+    delay(10); 
     long total = 0;
-    for(int i=0; i<10; i++){ total += analogReadMilliVolts(VBAT_PIN); delay(2); }
-    digitalWrite(BAT_ADC_EN, LOW); // Ahorro
+    for(int i=0; i<20; i++){ total += analogReadMilliVolts(VBAT_PIN); delay(2); }
+    digitalWrite(BAT_ADC_EN, LOW); 
     
-    float v = (total / 10.0 * VOLTAGE_MULTIPLIER) / 1000.0;
+    float v = (total / 20.0 * VOLTAGE_MULTIPLIER) / 1000.0;
     int p = map((long)(v * 100), 320, 420, 0, 100);
-    if(p < 0) p = 0; if(p > 100) p = 100;
+    
+    if(p < 0) p = 0; 
+    // No limitamos a 100 aqui para poder detectar el "sobrevoltaje" del USB
     return p;
-}
-
-void drawBatteryIcon(int x, int y, int p) {
-    screen.drawRect(x, y, 18, 10);
-    screen.fillRect(x + 18, y + 2, 2, 6); // Tip
-    int w = map(p, 0, 100, 0, 14);
-    if (w > 0) screen.fillRect(x + 2, y + 2, w, 6);
 }
 
 String getValue(String d, char s, int i) {
@@ -86,7 +80,6 @@ String getValue(String d, char s, int i) {
 
 // --- PANTALLA OLED ---
 void updateDisplay() {
-    // Actualizamos lectura bateria antes de dibujar
     bat_percent = readBattery(); 
 
     screen.clear(); screen.setFont(ArialMT_Plain_10); 
@@ -96,12 +89,23 @@ void updateDisplay() {
     if(WiFi.status() == WL_CONNECTED) { screen.drawString(0, 0, WiFi.localIP().toString()); } 
     else { screen.drawString(0, 0, "AP: 192.168.4.1"); }
 
-    // DERECHA: BATERIA + LORA (Sin WiFi RSSI para hacer sitio)
-    drawBatteryIcon(108, 0, bat_percent); // Icono a la derecha del todo
+    // DERECHA: BATERIA (TEXTO SOLO) + LORA
+    screen.setTextAlignment(TEXT_ALIGN_RIGHT);
     
-    screen.setTextAlignment(TEXT_ALIGN_RIGHT); 
+    // 1. Texto Bateria (Esquina derecha absoluta)
+    String batText;
+    if (bat_percent > 105) {
+        batText = "USB"; // Si detecta voltaje de carga
+    } else {
+        if (bat_percent > 100) bat_percent = 100;
+        batText = String(bat_percent) + "%";
+    }
+    screen.drawString(128, 0, batText);
+
+    // 2. LoRa RSSI (A la izquierda del texto de bateria)
+    // Calculamos espacio: "100%" ocupa unos 25px. Ponemos LoRa en x=95 aprox
     String sig = "L:" + String(rx_rssi_lora);
-    screen.drawString(105, 0, sig); // LoRa un poco a la izquierda de la bateria
+    screen.drawString(95, 0, sig); 
 
     if(signal_lost) {
         if((millis()/500)%2==0) {
@@ -216,10 +220,9 @@ String getHtml() {
   h += "let spdNames=['?','Silencioso','Normal','Sport','Ludicrous'];";
   h += "let spdIdx = d.spd; if(spdIdx<1 || spdIdx>4) spdIdx=2;"; 
   h += "document.getElementById('spd_title').innerText='🚀 VELOCIDAD: '+spdNames[spdIdx];";
-  // AQUI SI MOSTRAMOS BATERIA Y WIFI EN EL WEB
   h += "document.getElementById('sig').innerText='LoRa: '+d.l+'dBm | WiFi: '+d.w+'dBm | Bat: '+d.bat+'%';})},2000);";
   h += "function c(u){ fetch(u.replace(/ /g, '+')); }"; 
-  h += "</script></head><body><h2>🛸 RECEPTOR V57</h2>";
+  h += "</script></head><body><h2>🛸 RECEPTOR V58</h2>";
   
   h += "<div class='sig-bar' id='sig'>Cargando...</div>";
   h += "<div class='card'><h3 id='fn' style='color:#0ff;margin:0;'>--</h3><h1 id='p' style='font-size:50px'>"+String(p_perc)+"%</h1><p id='s'>"+p_stat+"</p></div>";
@@ -273,7 +276,7 @@ void setup() {
     Serial.begin(115200); pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
     pinMode(PRG_BUTTON, INPUT_PULLUP); delay(1000);
     
-    initBattery(); // INICIALIZAR BATERIA
+    initBattery(); 
 
     pinMode(Vext, OUTPUT); pinMode(RST_OLED, OUTPUT);
     digitalWrite(Vext, HIGH); delay(300); digitalWrite(Vext, LOW); delay(500);
@@ -288,11 +291,10 @@ void setup() {
         screen.init();
     }
     
-    // --- ROTACION PANTALLA ---
-    // screen.flipScreenVertically(); // <-- COMENTADO PARA ROTAR 180 (Si sale al reves, descomentalo)
+    // screen.flipScreenVertically(); 
     
     screen.setFont(ArialMT_Plain_10);
-    screen.clear(); screen.drawString(0,0,"INICIANDO V57..."); screen.display();
+    screen.clear(); screen.drawString(0,0,"INICIANDO V58..."); screen.display();
     
     preferences.begin("conf", false);
     lora_profile = preferences.getInt("prof", 2); lora_power = preferences.getInt("pow", 14);
@@ -311,7 +313,7 @@ void setup() {
         j += ",\"noz\":"+String(p_noz)+",\"bed\":"+String(p_bed)+",\"tim\":"+String(p_time);
         j += ",\"lay\":"+String(p_lay)+",\"totlay\":"+String(p_totlay)+",\"fan\":"+String(p_fan);
         j += ",\"spd\":"+String(p_spd)+",\"fn\":\""+p_file+"\"";
-        j += ",\"fila\":"+String(fila_total)+",\"bat\":"+String(bat_percent)+"}"; // Añado bat al JSON
+        j += ",\"fila\":"+String(fila_total)+",\"bat\":"+String(bat_percent)+"}"; 
         server.send(200,"application/json",j); 
     });
     
@@ -347,7 +349,6 @@ void loop() {
     static long lastWifiCheck = 0;
     if(millis() - lastWifiCheck > 2000) {
         lastWifiCheck = millis();
-        // Solo actualizamos pantalla si cambia el estado wifi, ya no por RSSI porque no lo mostramos en OLED
         if(WiFi.status() == WL_CONNECTED && WiFi.localIP().toString() != "0.0.0.0") updateDisplay();
     }
     int btnState = digitalRead(PRG_BUTTON);
